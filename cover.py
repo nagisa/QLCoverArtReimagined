@@ -351,7 +351,7 @@ class CoverFetcher(EventPlugin):
             cb.tag = s[1]
             cb.connect('toggled', _cb_toggled)
             try:
-                if config.get('plugins', 'cover_order_'+cb.tag) == 'True':
+                if config.get('plugins', 'cover_'+cb.tag) == 'True':
                     cb.set_active(True)
             except:
                 cb.set_active(True)
@@ -382,7 +382,6 @@ class CoverFetcher(EventPlugin):
         vb = gtk.VBox(spacing = 5)
         vb.pack_start(hb, expand = False)
         vb.pack_start(vb1, expand = False)
-        #vb.pack_start(hb3, expand = False)
         vb.pack_start(hb4, expand = False)
         vb.pack_start(hb5, expand = False)
         return vb
@@ -400,11 +399,11 @@ class CoverFetcher(EventPlugin):
                     order.append(service)
             except:
                 order.append(service)
+        print order
         try:
             treshold = int(config.get('plugins', 'cover_tresh'))
         except:
             treshold = 70
-        order = ['MB', 'LFM', 'A']
         #We pass all job to threaded class. Let player keep responsive.
         Cover(artist = artist,
               album = album,
