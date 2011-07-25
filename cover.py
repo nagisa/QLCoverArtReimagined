@@ -8,7 +8,7 @@
 
 from quodlibet.plugins.events import EventPlugin
 from quodlibet.player import playlist as player
-from quodlibet import config
+from quodlibet import config, util
 from os import path
 from urllib2 import urlopen
 from urllib import quote
@@ -16,6 +16,21 @@ from xml.dom.minidom import parseString
 from threading import Thread
 import re
 
+
+def save(url, where):
+    if not path.exists(where):
+        with open(where, "w+") as image_file:
+        #urlopen could fail so it's wrapped in try.
+            image_file.write(urlopen(url).read())
+            image_file.close()
+    return True
+    
+def check_existing_cover(album, song):
+    extensions = ['.png', '.jpg', '.jpeg']
+    song = path.dirname(song)
+    for extension in extensions:
+        if path.exists(path.join(song, album+extension)):
+            return True
 
 class Cover(Thread):
     """Threaded object, that downloads all covers.
@@ -37,7 +52,7 @@ class Cover(Thread):
         self.artist = kw.get('artist', None)
         self.album = kw.get('album')
         self.path = kw.get('path')
-        self.order = kw.get('order', ['MB', 'LFM'])
+        self.order = kw.get('order', ['MB', 'LFM', 'A'])
         self.treshold = kw.get('treshold', 70)
         
         #Checking, if we can perform searches with given arguments.
@@ -58,8 +73,17 @@ class Cover(Thread):
                                                         self.treshold), True,)
                 else:
                     self.order[key] = (None, False,)
+            if order == "A":
+                if self.album and self.artist:
+                    self.order[key] = (AmazonCover(self.artist,
+                                                        self.album,
+                                                        self.path), True,)
+                else:
+                    self.order[key] = (None, False,)
         
     def run(self):
+        if check_existing_cover(self.album, self.path):
+            return False
         for order in self.order:
             if not order[1]:
                 continue
@@ -136,14 +160,9 @@ class LastFMCover(object):
             try:
                 #We only do that, if we dont already have image
                 image_path = path.join(direc, self.album+extension)
-                if not path.exists(image_path):
-                    with open(image_path, "w+") as image_file:
-                        #urlopen could fail so it's wrapped in try.
-                        image_file.write(urlopen(image).read())
-                        image_file.close()
+                return save(image, image_path)
             except:
                 return False
-            return True
             
             
 class MusicBrainzCover(object):
@@ -189,6 +208,7 @@ class MusicBrainzCover(object):
             #We do a search for mbid which is needed to acces actual desctiption
             #of album.
             xml = parseString(urlopen(self.search).read())
+            
             release_list = xml.getElementsByTagName('release-list')[0]
             if release_list.getAttribute('count') == 0:
                 return False
@@ -200,6 +220,7 @@ class MusicBrainzCover(object):
             return False
             
     def download_image(self, mbid):
+        
         try:
             #We look at album's description.
             #Most of the time it contains images from Amazon.
@@ -217,80 +238,128 @@ class MusicBrainzCover(object):
             extension = path.splitext(findings)[1]
             try:
                 image_path = path.join(direc, self.album+extension)
-                if not path.exists(image_path):
-                    with open(image_path, "w+") as f:
-                        #urlopen could fail so it's wrapped in try.
-                        f.write(urlopen(findings).read())
-                        f.close()
+                return save(findings, image_path)
             except:
                 return False
-            return True
-        
+
     def run(self):
         return self.search_album()
+        
+        
+class AmazonCover(object):
+    """Searches all amazons for cover.
+    Arguments - artist, album and path. All required.
+    Cover is saved in same directory as song. Image name equals to album name.
+    Usage example:
+    LastFMCover('The Beatles', 'Abbey Road', 
+                '/home/music/The Beatles/song.mp3').run()"""
+    def __init__(self, artist, album, path):
+        #We won't search without artist, because that gives very inaccurate 
+        #results.
+        KEY = 'AKIAJVYURRT3Y62RJNEA'
+        SEC = 'JMh0Rk3ZvRjsvPxTppJWkHe/gMVd7Ws4XsSIZW/0'
+        self.amz = {}
+        amzns = ['CA', 'DE', 'FR', 'JP', 'US', 'UK']
+        try:
+            #We could miss bottlenose package
+            import bottlenose
+            for amzn in amzns:
+                self.amz[amzn] = bottlenose.Amazon(KEY, SEC , Region = amzn)
+        except:
+            #We cannot return there. But at we have len(self.amz) == 0
+            pass
+            
+        self.artist = artist.decode('utf-8')
+        self.album = album.decode('utf-8')
+        self.path = path
+        
+    def image_link(self):
+        #We could not initalize amazon apis.
+        if len(self.amz) == 0:
+            return False
+        #We will perform search in all possible amazons.
+        for amazon in self.amz:
+            amazon = self.amz[amazon]
+            #Connecting to amazon
+            response = amazon.ItemSearch(SearchIndex = "Music",
+            ResponseGroup = "Images", Title = self.album, Artist = self.artist)
+            xml = parseString(response)
+            result_count = xml.getElementsByTagName('TotalResults')[0]
+            if result_count.childNodes[0].toxml() == '0':
+                #Nothing found in that amazon.
+                continue
+            if result_count.childNodes[0].toxml() > '3':
+                #Too unaccurate!
+                #There may be 2 or 3 versions. But not more.
+                continue
+            #Personally I think, that MediumImage is too small...
+            try:
+                #There may be no LargeImages
+                image = xml.getElementsByTagName('LargeImage')[0]
+            except:
+                continue
+            #Returning image url.
+            return image.getElementsByTagName('URL')[0].childNodes[0].toxml()
+        #Still no image returned, we failed.
+        return False
+            
+    def download_image(self, link):
+        if not link:
+            #We didn't got image link.
+            return False
+        direc = path.dirname(self.path)
+        extension = path.splitext(link)[1]
+        try:
+            #We only do that, if we dont already have image
+            image_path = path.join(direc, self.album+extension)
+            return save(link, image_path)
+        except:
+            return False
+             
+    def run(self):
+        return self.download_image(self.image_link())
+            
 
-         
 class CoverFetcher(EventPlugin):
     PLUGIN_ID = "CoverFetcher"
-    PLUGIN_NAME = _("Album art fetcher")
-    PLUGIN_DESC = _("Automatically downloads and saves album art for current"+
-            " playing album.\nMakes use of Last.fm and Musicbrainz services.")
-    PLUGIN_VERSION = "0.6"
-    
+    PLUGIN_NAME = _("Automatic Album Art")
+    PLUGIN_DESC = _("Automatically downloads and saves album art for currently"+
+            " playing album.")
+    PLUGIN_VERSION = "0.7"
+
     def PluginPreferences(self, parent):
         #import gobject
         import gtk
+        
+        def _cb_toggled(cb):
+            if cb.get_active():
+                config.set('plugins', 'cover_'+cb.tag, 'True')
+            else:
+                config.set('plugins', 'cover_'+cb.tag, '')
+        
         #First label
         orde = gtk.Label('')
-        orde.set_markup('<b>Order of services</b>\n'
-                        +'<i>Recommended: MB=1 LFM=2:</i>')
+        orde.set_markup('<b>Services</b>\n'
+                        +'<i>Which services should be searched for cover?</i>')
         hb = gtk.HBox(spacing = 12)
         hb.pack_start(orde, expand = False)
         
-        #First entry:
-        def changed_mb(field):
-            config.set('plugins', 'cover_order_mb', int(field.get_text() or 1))
-        def changed_lfm(field):
-            config.set('plugins', 'cover_order_lfm', int(field.get_text() or 2))
-            
-        try:
-            mb_text = str(config.get('plugins', 'cover_order_mb'))
-        except:
-            mb_text = '1'
-        try:
-            lfm_text = str(config.get('plugins', 'cover_order_lfm'))
-        except:
-            lfm_text = '2'
-        lab_mb = gtk.Label('MusicBrainz')
-        entry_mb = gtk.Entry()
-        entry_mb.set_text(mb_text)
-        entry_mb.connect("changed", changed_mb)
-        entry_mb.set_width_chars(1)
-        lab_lfm = gtk.Label('Last.FM')
-        entry_lfm = gtk.Entry()
-        entry_lfm.set_text(lfm_text)
-        entry_lfm.connect("changed", changed_lfm)
-        entry_lfm.set_width_chars(1)
-        hb2 = gtk.HBox(spacing = 12)
-        hb2.pack_start(lab_mb, expand = False)
-        hb2.pack_start(entry_mb, expand = True)
-        hb2.pack_start(lab_lfm, expand = False)
-        hb2.pack_start(entry_lfm, expand = True)
-        
-        
-        #Explanation on MB and LFM
-        expl_mb = gtk.Label('')
-        expl_mb.set_markup('<b>MusicBrainz</b>\nBetter quality.\n'
-                            +'Higher chance of finding image.')   
-        expl_lfm = gtk.Label('')
-        expl_lfm.set_markup('<b>last.fm</b>\nFaster.\nSmaller images.')
-        hb3 = gtk.HBox()
-        hb3.pack_start(expl_mb, expand=True)
-        hb3.pack_start(expl_lfm, expand=True)
+        vb1 = gtk.VBox(spacing = 6)
+        services = [('Amazon', 'A'), ('Last.fm', 'LFM'), ('MusicBrainz', 'MB')]
+        for k, s in enumerate(services):
+            cb = gtk.CheckButton(s[0])
+            cb.tag = s[1]
+            cb.connect('toggled', _cb_toggled)
+            try:
+                if config.get('plugins', 'cover_order_'+cb.tag) == 'True':
+                    cb.set_active(True)
+            except:
+                cb.set_active(True)
+            vb1.pack_start(cb, expand = True)
         
         #Treshold label
         tresh = gtk.Label('')
-        tresh.set_markup('<b>Treshold</b> (for MB, max - 100, min - 20)\n'
+        tresh.set_markup('<b>Treshold</b> (for MB, max - 100)\n'
         +'<i>How much search results should be tolerated to accept image.</i>')
         hb4 = gtk.HBox(spacing = 12)
         hb4.pack_start(tresh, expand = False)
@@ -312,8 +381,8 @@ class CoverFetcher(EventPlugin):
         #Packing everything.
         vb = gtk.VBox(spacing = 5)
         vb.pack_start(hb, expand = False)
-        vb.pack_start(hb2, expand = False)
-        vb.pack_start(hb3, expand = False)
+        vb.pack_start(vb1, expand = False)
+        #vb.pack_start(hb3, expand = False)
         vb.pack_start(hb4, expand = False)
         vb.pack_start(hb5, expand = False)
         return vb
@@ -324,22 +393,18 @@ class CoverFetcher(EventPlugin):
         album = song.get('album', '')
         path = song.get('~filename', '')
         #This also can be buggy. You see, it's hard to check this kind of thing.
-        try:
-            mb = int(config.get('plugins', 'cover_order_mb'))
-        except:
-            mb = 1
-        try:
-            lfm = int(config.get('plugins', 'cover_order_lfm'))
-        except:
-            lfm = 2
-        if mb < lfm:
-            order = ['MB', 'LFM']
-        else:
-            order = ['LFM', 'MB']
+        order = []
+        for service in ['MB', 'LFM', 'A']:
+            try:
+                if config.get('plugins', 'cover_'+service):
+                    order.append(service)
+            except:
+                order.append(service)
         try:
             treshold = int(config.get('plugins', 'cover_tresh'))
         except:
             treshold = 70
+        order = ['MB', 'LFM', 'A']
         #We pass all job to threaded class. Let player keep responsive.
         Cover(artist = artist,
               album = album,
