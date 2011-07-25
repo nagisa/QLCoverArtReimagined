@@ -399,7 +399,6 @@ class CoverFetcher(EventPlugin):
                     order.append(service)
             except:
                 order.append(service)
-        print order
         try:
             treshold = int(config.get('plugins', 'cover_tresh'))
         except:
