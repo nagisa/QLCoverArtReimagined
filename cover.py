@@ -200,59 +200,57 @@ class MusicBrainzCover(object):
         self.path = path
         self.album = album
     
-        self.search = 'http://musicbrainz.org/ws/2/release?limit=1&query='
-        #If album name has ! in it, then search actually sucks.
-        query = quote(album.replace('!', ' ').strip(' ').encode('utf-8'))
+        self.search = 'http://musicbrainz.org/ws/2/release?limit=4&query='
+        #If album name has ! in it, then search is broken. It needs to be esc.
+        query = quote(album.replace('!', '\!').replace('-', '\-')
+                                                               .encode('utf-8'))
         #If we have artist, we can make more accurate search
         if artist:
-            query += quote(' AND artist:%s'%artist.replace('!', ' ').strip(' ')
-                                                            .encode('utf-8'))
+            query += quote(' AND artist:%s'%artist.replace('!', '\!')
+                                           .replace('-', '\-').encode('utf-8'))
         self.search += query
-        #OK we made API search url.
-        
-        self.imageurl = 'http://musicbrainz.org/release/%s'
-        #This is link, where we could find image.
-        
-        #Only thing I'm sure about image is in this regex.
-        #Images are taken from Amazon by the way.
-        self.imagereg = r'http\:\/\/(.+)?\.LZ+\.(jpg|png|jpeg)'
-        
+
+        from random import randint
+        self.img = 'http://ec%d.images-amazon.com/images/P/%s.%02d.LZZZZZZZ.jpg'
+        self.img = self.img % (randint(1,3), '%s', randint(1, 9))
         
     def search_album(self):
         try:
-            #We do a search for mbid which is needed to acces actual desctiption
-            #of album.
             xml = parseString(urlopen(self.search).read())
-            
+
             release_list = xml.getElementsByTagName('release-list')[0]
             if release_list.getAttribute('count') == 0:
                 return False
-            album = release_list.getElementsByTagName('release')[0]
-            if album.getAttribute('ext:score') < self.treshold:
-                return False
-            return self.download_image(album.getAttribute('id'))
+                
+            albums = release_list.getElementsByTagName('release')
+            for album in albums:
+                if album.getAttribute('ext:score') < self.treshold:
+                    continue
+                if len(album.getElementsByTagName('asin')) == 0:
+                    continue
+                else:
+                    asin = album.getElementsByTagName('asin')[0]
+                    asin = asin.childNodes[0].toxml()
+                    return self.download_image(asin)
+            return False
         except:
             return False
             
-    def download_image(self, mbid):
-        
-        try:
-            #We look at album's description.
-            #Most of the time it contains images from Amazon.
-            findings = urlopen(self.imageurl%mbid).read()
-            findings = re.search(self.imagereg, findings).group()
-        except:
-            #Couldn't download
+    def download_image(self, asin):
+        if not asin:
+            #Just to be safe.
             return False
-        if not findings:
-            #No image was available
+        url = self.img % asin
+        #WWe need to check, if image is not 1x1 empty gif.
+        image = urlopen(url)
+        #I think 500 bytes is pretty reasonable size.
+        if image.headers['content-length'] < 500:
             return False
         else:
-            #Do saving routine.
-            direc = path.dirname(self.path)
-            extension = path.splitext(findings)[1]
+            image.close()
+            directory = path.dirname(self.path)
             try:
-                return save(findings, direc, self.album, extension)
+                return save(url, directory, self.album, '.jpg')
             except:
                 return False
 
@@ -327,7 +325,6 @@ class AmazonCover(object):
         direc = path.dirname(self.path)
         extension = path.splitext(link)[1]
         try:
-            #We only do that, if we dont already have image
             return save(link, direc, self.album, extension)
         except:
             return False
