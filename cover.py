@@ -201,10 +201,12 @@ class MusicBrainzCover(object):
         self.album = album
     
         self.search = 'http://musicbrainz.org/ws/2/release?limit=1&query='
-        query = quote(album.encode('utf-8'))
+        #If album name has ! in it, then search actually sucks.
+        query = quote(album.replace('!', ' ').strip(' ').encode('utf-8'))
         #If we have artist, we can make more accurate search
         if artist:
-            query += quote(' AND artist:%s'%artist.encode('utf-8'))
+            query += quote(' AND artist:%s'%artist.replace('!', ' ').strip(' ')
+                                                            .encode('utf-8'))
         self.search += query
         #OK we made API search url.
         
@@ -278,7 +280,7 @@ class AmazonCover(object):
         except:
             #We cannot return there. But at we have len(self.amz) == 0
             print_e('bottlenose package is missing. No amazon search '+
-                    'functionality')
+                    'functionality.')
         try:
             for amzn in amzns:
                 self.amz[amzn] = bottlenose.Amazon(KEY, SEC , Region = amzn)
@@ -300,8 +302,6 @@ class AmazonCover(object):
             ResponseGroup = "Images", Title = self.album, Artist = self.artist)
             xml = parseString(response)
             result_count = xml.getElementsByTagName('TotalResults')[0]
-            print result_count.childNodes[0].toxml()
-            print response
             if result_count.childNodes[0].toxml() == '0':
                 #Nothing found in that amazon.
                 continue
