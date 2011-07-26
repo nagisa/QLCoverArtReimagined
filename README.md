@@ -9,7 +9,7 @@ Quodlibet Automatic Album Art
 
     sudo easy_install bottlenose
     
-- Put cover.py inside /usr/lib/python2.*x*/site-packages/quodlibet/plugins/events/
+- Put cover.py inside /usr/lib/python2.**x**/site-packages/quodlibet/plugins/events/
 
     sudo cp cover.py /usr/lib/python2.7/site-packages/quodlibet/plugins/events/cover.py
     
@@ -19,7 +19,7 @@ Quodlibet Automatic Album Art
 #### Windows
 
 - Install bottlenose
-- Put cover.py inside C:\Python2.*x*\Lib\site-packages\quodlibet\plugins\events\
+- Put cover.py inside C:\Python2.**x**\Lib\site-packages\quodlibet\plugins\events\
 - Relaunch Quodlibet
 - Enable plugin in Music>Plugins
 
