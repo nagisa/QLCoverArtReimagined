@@ -35,6 +35,13 @@ def save(url, directory, album, ext):
     
 def check_existing_cover(album, song):
     extensions = ['.png', '.jpg', '.jpeg']
+    try:
+        #I hope, that my patch @
+        #http://code.google.com/p/quodlibet/issues/detail?id=784 passed
+        #Also would fix issue number 1.
+        album = util.fs_illegal_strip(album)
+    except:
+        pass
     song = path.dirname(song)
     for extension in extensions:
         if path.exists(path.join(song, album+extension)):
