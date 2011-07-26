@@ -275,12 +275,15 @@ class AmazonCover(object):
         try:
             #We could miss bottlenose package
             import bottlenose
+        except:
+            #We cannot return there. But at we have len(self.amz) == 0
+            print_e('bottlenose package is missing. No amazon search '+
+                    'functionality')
+        try:
             for amzn in amzns:
                 self.amz[amzn] = bottlenose.Amazon(KEY, SEC , Region = amzn)
         except:
-            #We cannot return there. But at we have len(self.amz) == 0
             pass
-            
         self.artist = artist.decode('utf-8')
         self.album = album.decode('utf-8')
         self.path = path
@@ -297,6 +300,8 @@ class AmazonCover(object):
             ResponseGroup = "Images", Title = self.album, Artist = self.artist)
             xml = parseString(response)
             result_count = xml.getElementsByTagName('TotalResults')[0]
+            print result_count.childNodes[0].toxml()
+            print response
             if result_count.childNodes[0].toxml() == '0':
                 #Nothing found in that amazon.
                 continue
