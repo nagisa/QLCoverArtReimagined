@@ -17,9 +17,17 @@ from threading import Thread
 import re
 
 
-def save(url, where):
-    if not path.exists(where):
-        with open(where, "w+") as image_file:
+def save(url, directory, album, ext):
+    try:
+        #I hope, that my patch @
+        #http://code.google.com/p/quodlibet/issues/detail?id=784 passed
+        #Also would fix issue number 1.
+        album = util.fs_illegal_strip(album)
+    except:
+        pass
+    image_path = path.join(directory, album + ext)
+    if not path.exists(image_path):
+        with open(image_path, "w+") as image_file:
         #urlopen could fail so it's wrapped in try.
             image_file.write(urlopen(url).read())
             image_file.close()
@@ -158,9 +166,7 @@ class LastFMCover(object):
             direc = path.dirname(self.path)
             extension = path.splitext(image)[1]
             try:
-                #We only do that, if we dont already have image
-                image_path = path.join(direc, self.album+extension)
-                return save(image, image_path)
+                return save(image, direc, self.album, extension)
             except:
                 return False
             
@@ -237,8 +243,7 @@ class MusicBrainzCover(object):
             direc = path.dirname(self.path)
             extension = path.splitext(findings)[1]
             try:
-                image_path = path.join(direc, self.album+extension)
-                return save(findings, image_path)
+                return save(findings, direc, self.album, extension)
             except:
                 return False
 
@@ -311,8 +316,7 @@ class AmazonCover(object):
         extension = path.splitext(link)[1]
         try:
             #We only do that, if we dont already have image
-            image_path = path.join(direc, self.album+extension)
-            return save(link, image_path)
+            return save(link, direc, self.album, extension)
         except:
             return False
              
