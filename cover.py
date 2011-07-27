@@ -319,7 +319,6 @@ class AmazonCover(object):
             except:
                 continue
             #Returning image url.
-            print 'we here'
             return image.getElementsByTagName('URL')[0].childNodes[0].toxml()
         #Still no image returned, we failed.
         return False
@@ -412,7 +411,7 @@ class CoverFetcher(EventPlugin):
         path = song.get('~filename', '')
         #This also can be buggy. You see, it's hard to check this kind of thing.
         order = []
-        for service in ['MB', 'A', 'LFM']:
+        for service in ['MB', 'LFM', 'A']:
             try:
                 if config.get('plugins', 'cover_'+service):
                     order.append(service)
