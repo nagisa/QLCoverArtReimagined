@@ -266,8 +266,6 @@ class AmazonCover(object):
     LastFMCover('The Beatles', 'Abbey Road', 
                 '/home/music/The Beatles/song.mp3').run()"""
     def __init__(self, artist, album, path):
-        #We won't search without artist, because that gives very inaccurate 
-        #results.
         KEY = 'AKIAJVYURRT3Y62RJNEA'
         SEC = 'JMh0Rk3ZvRjsvPxTppJWkHe/gMVd7Ws4XsSIZW/0'
         self.amz = {}
@@ -301,8 +299,15 @@ class AmazonCover(object):
             xml = parseString(response)
             result_count = xml.getElementsByTagName('TotalResults')[0]
             if result_count.childNodes[0].toxml() == '0':
-                #Nothing found in that amazon.
-                continue
+                #We will check it without Artist if no results!
+                #Less accurate!
+                #Don't really know if this one should be used...
+                response = amazon.ItemSearch(SearchIndex = "Music", 
+                ResponseGroup = "Images", Title = self.album)
+                xml = parseString(response)
+                result_count = xml.getElementsByTagName('TotalResults')[0]
+                if result_count.childNodes[0].toxml() == '0':
+                    continue
             if result_count.childNodes[0].toxml() > '3':
                 #Too unaccurate!
                 #There may be 2 or 3 versions. But not more.
@@ -314,6 +319,7 @@ class AmazonCover(object):
             except:
                 continue
             #Returning image url.
+            print 'we here'
             return image.getElementsByTagName('URL')[0].childNodes[0].toxml()
         #Still no image returned, we failed.
         return False
@@ -406,7 +412,7 @@ class CoverFetcher(EventPlugin):
         path = song.get('~filename', '')
         #This also can be buggy. You see, it's hard to check this kind of thing.
         order = []
-        for service in ['MB', 'LFM', 'A']:
+        for service in ['MB', 'A', 'LFM']:
             try:
                 if config.get('plugins', 'cover_'+service):
                     order.append(service)

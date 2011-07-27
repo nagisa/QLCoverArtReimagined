@@ -1,6 +1,15 @@
 Quodlibet Automatic Album Art
 =============================
 
+## Statistics
+
+Having 354 albums with „maybe“ correct tags. Some of them misses artist, some - album name itself.
+This script found and downloaded 338 album arts. Of which 16 were bigger than 500x500. 3 of them was smaller.
+Only 1 cover was incorrect.
+Worth mentioning, that most of music was pretty random - japanese music, some random releases and even fan-music.
+
+So this script has about 95% success rate. And everything is automatic!
+
 ## Install instructions
  
 #### Linux
