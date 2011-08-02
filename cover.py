@@ -18,6 +18,13 @@ import re
 
 
 def save(url, directory, album, ext):
+    """Saves cover. First argument is URL to remote image.
+    Second - directory, where image should be saved.
+    Third - album name. Used for cover username.
+    Last - image extension.
+    
+    Usage:
+    save("http://...LZZZZ.jpg", "/home/.../music", "Abbey Road", "jpg")"""
     try:
         #I hope, that my patch @
         #http://code.google.com/p/quodlibet/issues/detail?id=784 passed
@@ -26,14 +33,21 @@ def save(url, directory, album, ext):
     except:
         pass
     image_path = path.join(directory, album + ext)
-    if not path.exists(image_path):
-        with open(image_path, "w+") as image_file:
-        #urlopen could fail so it's wrapped in try.
-            image_file.write(urlopen(url).read())
+    try:
+        image_file = open(image_path, "w+")
+        image_file.write(urlopen(url).read())
+    except:
+        return False
+    finally:
+        try:
+            #If opening image failed, then image_file has no .close() method.
             image_file.close()
+        except:
+            pass
+    #No returns happened? We saved it correctly then.
     return True
     
-def check_existing_cover(album, song):
+def check_existing_cover(album, file_path):
     extensions = ['.png', '.jpg', '.jpeg']
     try:
         #I hope, that my patch @
@@ -42,10 +56,12 @@ def check_existing_cover(album, song):
         album = util.fs_illegal_strip(album)
     except:
         pass
-    song = path.dirname(song)
+    
+    directory = path.dirname(file_path)
     for extension in extensions:
-        if path.exists(path.join(song, album+extension)):
+        if path.exists(path.join(directory, album+extension)):
             return True
+    return False
 
 class Cover(Thread):
     """Threaded object, that downloads all covers.
@@ -299,20 +315,11 @@ class AmazonCover(object):
             xml = parseString(response)
             result_count = xml.getElementsByTagName('TotalResults')[0]
             if result_count.childNodes[0].toxml() == '0':
-                #We will check it without Artist if no results!
-                #Less accurate!
-                #Don't really know if this one should be used...
-                response = amazon.ItemSearch(SearchIndex = "Music", 
-                ResponseGroup = "Images", Title = self.album)
-                xml = parseString(response)
-                result_count = xml.getElementsByTagName('TotalResults')[0]
-                if result_count.childNodes[0].toxml() == '0':
-                    continue
+                continue
             if result_count.childNodes[0].toxml() > '3':
                 #Too unaccurate!
                 #There may be 2 or 3 versions. But not more.
                 continue
-            #Personally I think, that MediumImage is too small...
             try:
                 #There may be no LargeImages
                 image = xml.getElementsByTagName('LargeImage')[0]
