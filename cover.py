@@ -327,9 +327,9 @@ class AmazonCover(object):
             ResponseGroup = "Images", Title = self.album, Artist = self.artist)
             xml = parseString(response)
             result_count = xml.getElementsByTagName('TotalResults')[0]
-            if result_count.childNodes[0].toxml() == '0':
+            if int(result_count.childNodes[0].toxml()) == '0':
                 continue
-            if result_count.childNodes[0].toxml() > '3':
+            if int(result_count.childNodes[0].toxml()) > '3':
                 #Too unaccurate!
                 #There may be 2 or 3 versions. But not more.
                 continue
