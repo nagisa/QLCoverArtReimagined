@@ -14,7 +14,7 @@ from urllib2 import urlopen
 from urllib import quote
 from xml.dom.minidom import parseString
 from threading import Thread
-import re
+from random import randint
 
 
 def save(url, directory, album, ext):
@@ -37,6 +37,8 @@ def save(url, directory, album, ext):
         image_file = open(image_path, "w+")
         image_file.write(urlopen(url).read())
     except:
+        print_e(_("[Automatic Album Art] Could not write album art image to"+
+                  " %s") % image_path)
         return False
     finally:
         try:
@@ -46,6 +48,7 @@ def save(url, directory, album, ext):
             pass
     #No returns happened? We saved it correctly then.
     return True
+    
     
 def check_existing_cover(album, file_path):
     extensions = ['.png', '.jpg', '.jpeg']
@@ -60,8 +63,11 @@ def check_existing_cover(album, file_path):
     directory = path.dirname(file_path)
     for extension in extensions:
         if path.exists(path.join(directory, album+extension)):
+            message = "[Automatic Album Art] Album art for %s already exists."
+            print_d(_(message % album))
             return True
     return False
+
 
 class Cover(Thread):
     """Threaded object, that downloads all covers.
@@ -70,7 +76,8 @@ class Cover(Thread):
     
     Available engines:
     MB - stands for MusicBrainz.
-    LFM - stands for last.fm
+    LFM - stands for last.fm.
+    A - stands for Amazon (requires bottlenose package).
     Excecuting order and used engines must be specified as list and passed as
     order argument.
     
@@ -107,8 +114,8 @@ class Cover(Thread):
             if order == "A":
                 if self.album and self.artist:
                     self.order[key] = (AmazonCover(self.artist,
-                                                        self.album,
-                                                        self.path), True,)
+                                                   self.album,
+                                                   self.path), True,)
                 else:
                     self.order[key] = (None, False,)
         
@@ -211,6 +218,14 @@ class MusicBrainzCover(object):
     
     MusicBrainzCover('Abbey Road', '/home/music/The Beatles/song.mp3',
                       'The Beatles', 70).run()"""
+    def escape_query(self, query):
+        special_chars = ['\\','+','-','&&','||','!','(',')','{','}','[',']',
+                         '^','"','~','*','?',':']
+        for character in special_chars:
+            query = query.replace(character, '\\%s' % character)
+        return query
+        
+                
     def __init__(self, album, path, artist, treshold):
         self.treshold = treshold
         self.path = path
@@ -218,29 +233,27 @@ class MusicBrainzCover(object):
     
         self.search = 'http://musicbrainz.org/ws/2/release?limit=4&query='
         #If album name has ! in it, then search is broken. It needs to be esc.
-        query = quote(album.replace('!', '\!').replace('-', '\-')
-                                                               .encode('utf-8'))
+        query = quote( self.escape_query(album).encode('utf-8') )
         #If we have artist, we can make more accurate search
         if artist:
-            query += quote(' AND artist:%s'%artist.replace('!', '\!')
-                                           .replace('-', '\-').encode('utf-8'))
+            query += quote( ' AND artist:%s' % self.escape_query(artist)
+                                                              .encode('utf-8') )
         self.search += query
 
-        from random import randint
         self.img = 'http://ec%d.images-amazon.com/images/P/%s.%02d.LZZZZZZZ.jpg'
         self.img = self.img % (randint(1,3), '%s', randint(1, 9))
         
     def search_album(self):
+    #TODO: Image may be not from amazon.
+    #TODO: Album with Various artist support.
         try:
             xml = parseString(urlopen(self.search).read())
-
             release_list = xml.getElementsByTagName('release-list')[0]
-            if release_list.getAttribute('count') == 0:
+            if int(release_list.getAttribute('count')) == 0:
                 return False
-                
             albums = release_list.getElementsByTagName('release')
             for album in albums:
-                if album.getAttribute('ext:score') < self.treshold:
+                if int(album.getAttribute('ext:score')) < self.treshold:
                     continue
                 if len(album.getElementsByTagName('asin')) == 0:
                     continue
@@ -291,8 +304,8 @@ class AmazonCover(object):
             import bottlenose
         except:
             #We cannot return there. But at we have len(self.amz) == 0
-            print_e('bottlenose package is missing. No amazon search '+
-                    'functionality.')
+            print_w(_('[Automatic Album Art] bottlenose package is missing.' +
+                      ' Cannot search Amazon for album art images.'))
         try:
             for amzn in amzns:
                 self.amz[amzn] = bottlenose.Amazon(KEY, SEC , Region = amzn)
@@ -349,7 +362,7 @@ class CoverFetcher(EventPlugin):
     PLUGIN_ID = "CoverFetcher"
     PLUGIN_NAME = _("Automatic Album Art")
     PLUGIN_DESC = _("Automatically downloads and saves album art for currently"+
-            " playing album.")
+                    " playing album.")
     PLUGIN_VERSION = "0.7"
 
     def PluginPreferences(self, parent):
@@ -416,7 +429,7 @@ class CoverFetcher(EventPlugin):
         artist = song.get('artist','')
         album = song.get('album', '')
         path = song.get('~filename', '')
-        #This also can be buggy. You see, it's hard to check this kind of thing.
+        
         order = []
         for service in ['MB', 'LFM', 'A']:
             try:
