@@ -363,7 +363,7 @@ class CoverFetcher(EventPlugin):
     PLUGIN_NAME = _("Automatic Album Art")
     PLUGIN_DESC = _("Automatically downloads and saves album art for currently"+
                     " playing album.")
-    PLUGIN_VERSION = "0.7"
+    PLUGIN_VERSION = "0.75"
 
     def PluginPreferences(self, parent):
         #import gobject
