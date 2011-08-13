@@ -332,7 +332,8 @@ class VGMdbCover(object):
         self.url = url % (quote(self.artist), quote(self.album))
         
         try:
-            keys = ['labelid', 'catalog', 'catalog#', 'catalogid']
+            keys = ['labelid', 'catalog', 'catalog#']
+            self.label = [song[key] for key in keys if song.get(key, False)][0]
             self.has_label = True
             if not self.label:
                 self.has_label = False
