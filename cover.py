@@ -55,6 +55,9 @@ def check_existing_cover(album, file_path):
     Usage:
     check_existing_cover('Abbey Road', '/home.../music/song.mp3')
     """
+    if is_enabled('reload'):
+        #Force redownload of all covers option.
+        return False
     extensions = ['.png', '.jpg', '.jpeg', '.gif']
     try:
         album = util.fs_illegal_strip(album)
@@ -69,7 +72,7 @@ def check_existing_cover(album, file_path):
     return False
     
     
-def is_enabled(tag):
+def is_enabled(tag, default = True):
     """
     Checks if plugin is enabled, give it's tag as argument.
     
@@ -82,7 +85,7 @@ def is_enabled(tag):
         else:
             return False
     except:
-        return True
+        return default
 
 
 class Cover(Thread):
@@ -329,7 +332,7 @@ class VGMdbCover(object):
         self.url = url % (quote(self.artist), quote(self.album))
         
         try:
-            self.label = song['labelid']
+            keys = ['labelid', 'catalog', 'catalog#', 'catalogid']
             self.has_label = True
             if not self.label:
                 self.has_label = False
@@ -354,7 +357,6 @@ class VGMdbCover(object):
         if not self.passed and not is_enabled('VGM'):
             return False
         try:
-            print self.url
             xml = urlopen(self.url)
             if 'http://vgmdb.net/album/' in xml.url:
                 xml = BeautifulSoup(xml.read())
@@ -396,7 +398,8 @@ class CoverFetcher(EventPlugin):
                 return 70
                 
         def set_treshold(spin):
-            config.set('plugins', 'cover_treshold', str(spin.get_value_as_int()))
+            value = str(spin.get_value_as_int())
+            config.set('plugins', 'cover_treshold', value)
 
         #Another things to be used though whole function
         tooltip = gtk.Tooltips()
@@ -405,9 +408,16 @@ class CoverFetcher(EventPlugin):
               
         
         #General settings tab
-        #main_label = gtk.Label(_('General'))        
-        #main_settings = gtk.VBox(spacing = 5)
-        #notebook.append_page(main_settings, main_label)
+        label = gtk.Label(_('General'))        
+        settings = gtk.VBox(spacing = 5)
+        rld = gtk.CheckButton(_('Redownload image, even if it already exists'))
+        tip = _('Helps to keep cover up to date')
+        tooltip.set_tip(rld, tip)
+        rld.tag = 'reload'
+        rld.connect('toggled', cb_toggled)
+        rld.set_active(is_enabled(rld.tag, False))
+        settings.pack_start(rld)
+        notebook.append_page(settings, label)
         
         #MusicBrainz settings tab
         label = gtk.Label(_('MusicBrainz'))    
@@ -420,7 +430,9 @@ class CoverFetcher(EventPlugin):
         settings.pack_start(enabled)
         
         treshold = gtk.HBox(spacing = 10)
-        tooltip.set_tip(treshold, _('How much search results should be tolerated?\nBigger value = More accurate.'))
+        tip = _('How much search results should be tolerated?'+
+                              '\nBigger value = More accurate.')
+        tooltip.set_tip(treshold, tip)
         treshold_label = gtk.Label('Treshold')
         adjust = gtk.Adjustment(get_treshold(), 40, 100, 5)
         treshold_entry = gtk.SpinButton(adjust)
