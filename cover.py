@@ -19,7 +19,7 @@ from urlparse import urljoin
 from BeautifulSoup import BeautifulSoup
 import bottlenose
 
-debug = False
+debug = True
 if debug:
     from sys import exc_info
     from traceback import print_exception
@@ -365,7 +365,7 @@ class VGMdbCover(object):
                 extension = path.splitext(c)[1]
                 return save(c, self.path, self.album, extension)
             else:
-                if self.second_run:
+                if getattr(self, 'second_run', False):
                     return False
                 self.second_run = True
                 url = 'http://vgmdb.net/search?q=%%22%s%%22'
