@@ -19,7 +19,7 @@ from urlparse import urljoin
 from BeautifulSoup import BeautifulSoup
 import bottlenose
 
-debug = True
+debug = False
 if debug:
     from sys import exc_info
     from traceback import print_exception
