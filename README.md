@@ -1,38 +1,50 @@
-Quodlibet Automatic Album Art
-=============================
+[Quodlibet](http://code.google.com/p/quodlibet/) Automatic Album Art Downloader
+===============================================================================
 
 ## Statistics
 
-Having 354 albums with „maybe“ correct tags. Some of them misses artist, some - album name itself.
-This script found and downloaded 338 album arts. Of which 16 were bigger than 500x500. 3 of them was smaller.
-Only 1 cover was incorrect.
-Worth mentioning, that most of music was pretty random - japanese music, some random releases and even fan-music.
+* Total: 383 albums
+* More than 500x500: 15 images
+* Around 500x500: 331 image
+* Around 250x250: 20 images
+* Less than 250x250: 6 images
+* Incorrect images: 1 image
+* Not found: 10 images
 
-So this script has about 95% success rate. And everything is automatic!
+So fetcher has about 97% accuracy and everything's automatic!
+
+Notes:
+
+* Some testing albums were brand-new, so I couldn't even find cover on google
+* Some albums were with pretty dirty tags.
+* A lot of pseudo-releases.
 
 ## Install instructions
- 
-#### Linux
 
-- For Amazon support you will need bottlenose package.
+### Step 1:
 
-    sudo easy_install bottlenose
-    
-- Put cover.py inside /usr/lib/python2.**x**/site-packages/quodlibet/plugins/events/
+#### Dependencies:
 
-    sudo cp cover.py /usr/lib/python2.7/site-packages/quodlibet/plugins/events/cover.py
-    
-- Relaunch Quodlibet
-- Enable plugin in Music>Plugins
+* [bottlenose](https://github.com/dlo/bottlenose) - `easy_install bottlenose` or `pip install bottlenose`
+* [BeautifulSoup](http://www.crummy.com/software/BeautifulSoup/) - `easy_install BeautifulSoup` or `pip install BeautifulSoup`
 
-#### Windows
+### Step 2:
 
-- Install bottlenose
-- Put cover.py inside C:\Python2.**x**\Lib\site-packages\quodlibet\plugins\events\
-- Relaunch Quodlibet
-- Enable plugin in Music>Plugins
+#### Linux:
 
+Put cover.py inside `/usr/lib/python2.x/site-packages/quodlibet/plugins/events/`
 
-#### Mac OS
+`sudo cp ./cover.py /usr/lib/python2.7/site-packages/quodlibet/plugins/events/cover.py`
 
-- Linux instructions should be OK. Not sure about that.
+#### Windows:
+
+Put cover.py into `C:\Python2.x\Lib\site-packages\quodlibet\plugins\events\`
+
+### Step 3:
+
+* Relaunch Quodlibet
+* Enable `Automatic Album Art` in `Music`>`Plugins`
+
+## One more notice
+
+Due to quodlibet restrictions cover will appear only when you play album second time.

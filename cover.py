@@ -8,15 +8,35 @@
 
 from quodlibet.plugins.events import EventPlugin
 from quodlibet.player import playlist as player
-from quodlibet import config, util
+from quodlibet import config
 from os import path
-from urllib2 import urlopen
+from urllib2 import urlopen, URLError
 from urllib import quote
 from xml.dom.minidom import parseString
 from threading import Thread
 from random import randint
-from BeautifulSoup import BeautifulSoup
 from urlparse import urljoin
+from BeautifulSoup import BeautifulSoup
+import bottlenose
+
+debug = False
+if debug:
+    from sys import exc_info
+    from traceback import print_exception
+
+def debugger(message):
+    print_w('[AutoAlbumArt] %s' % message)
+    if debug:
+        print_exception(*exc_info())
+
+def fs_strip(s, replace=None):
+    """
+    Strips illegal filesystem characters from album.
+    See issue http://code.google.com/p/quodlibet/issues/detail?id=784
+    """
+    replace = replace or " "
+    illegals = '/?<>\:*|"^' #^ is illegal in FAT, only / is illegal in Unix.
+    return reduce(lambda q, c: q.replace(c, replace), illegals, s)
 
 def save(url, directory, album, ext):
     """
@@ -30,20 +50,15 @@ def save(url, directory, album, ext):
     Usage:
     save("http://...LZZZZ.jpg", "/home/.../music", "Abbey Road", "jpg")
     """
-    try:
-        album = util.fs_illegal_strip(album)
-    except:
-        pass
-    image_path = path.join(directory, album + ext)
+    image_path = path.join(directory, fs_strip(album) + ext)
     try:
         image_file = open(image_path, "w+")
         image_file.write(urlopen(url).read())
         image_file.close()
         return True
     except:
-        print_e(_("[Automatic Album Art] Failed to"
-                  "download album art image from %s to %s") % (url, image_path))
-        return False
+        debugger('Failed to save image from %s to %s' %(url, image_path))
+    return False
 
 def check_existing_cover(album, file_path):
     """
@@ -55,18 +70,12 @@ def check_existing_cover(album, file_path):
     Usage:
     check_existing_cover('Abbey Road', '/home.../music/song.mp3')
     """
+    #Force redownload of all covers option.
     if is_enabled('reload'):
-        #Force redownload of all covers option.
         return False
-    try:
-        album = util.fs_illegal_strip(album)
-    except:
-        pass
     directory = path.dirname(file_path)
     for ext in ['.png', '.jpg', '.jpeg', '.gif']:
-        if path.exists(path.join(directory, album+extension)):
-            msg = "[Automatic Album Art] Album art for %s already exists"
-            print_d(_(msg) % album)
+        if path.exists(path.join(directory, fs_strip(album) + extension)):
             return True
     return False
 
@@ -84,6 +93,7 @@ def is_enabled(tag, default=True):
             return False
     except:
         return default
+
 
 class Cover(Thread):
     def __init__(self, song):
@@ -112,26 +122,22 @@ class LastFMCover(object):
     LastFMCover(quodlibet.player.playlist.song).run()
     """
     def __init__(self, song):
-        self.passed = True
-        #Last.fm API requires key.
         api = 'http://ws.audioscrobbler.com/2.0/'
         apikey = '2dd4db6614e0f314b4401a92dce5e04a'
-        try:
-            self.path = path.dirname(song['~filename'])
-            self.album = song['album'].encode('utf-8')
-            self.artist = song['artist'].encode('utf-8')
-        except:
-            #Indicates, that we didn't get required... variables(?)
-            self.passed = False
+        self.path = path.dirname(song['~filename'])
+        self.album = song.get('album', '').encode('utf-8')
+        self.artist = song.get('artist', '').encode('utf-8')
         if not self.album or not self.artist:
             self.passed = False
-
+        else:
+            self.passed = True
         url = "%s?method=album.getinfo&api_key=%s&artist=%s&album=%s"
         self.url = url % (api, apikey, quote(self.artist), quote(self.album))
 
     def run(self):
         if not self.passed or not is_enabled('LFM'):
             return False
+
         try:
             content = parseString(urlopen(self.url).read())
             parent = content.getElementsByTagName('lfm')[0]
@@ -145,7 +151,11 @@ class LastFMCover(object):
                 image_url = image.childNodes[0].toxml()
                 extension = path.splitext(image_url)[1]
                 return save(image_url, self.path, self.album, extension)
+        except URLError:
+            debugger('Failed to open %s'%self.url)
+            return False
         except:
+            debugger('LFM - unexpected error')
             return False
 
 
@@ -165,40 +175,30 @@ class MusicBrainzCover(object):
         try:
             return int(config.get('plugins', 'cover_treshold'))
         except:
+            debugger('Could not get treshold. Using 70.')
             return 70
 
     def __init__(self, song):
-        self.passed = True
-        try:
-            self.album = song['album']
-            self.treshold = self.get_treshold()
-            self.path = path.dirname(song['~filename'])
-            if not self.album:
-                self.passed = False
-        except:
+        self.album = song.get('album', '').encode('utf-8')
+        artist = song.get('artist', '').encode('utf-8')
+        self.treshold = self.get_treshold()
+        self.path = path.dirname(song['~filename'])
+        self.mbid = song.get('musicbrainz_albumid', False)
+        if not self.album:
             self.passed = False
-
-        try:
-            #can search for mbid if we have one
-            self.mbid = song['musicbrainz_albumid']
-            self.have_mbid = True
-            if not self.mbid:
-                self.have_mbid = False
-        except:
-            self.have_mbid = False
-
-        artist = song.get('artist', False)
+        else:
+            self.passed = True
         url = 'http://musicbrainz.org/ws/2/release?limit=4&query=%s'
-        query = quote(self.escape_query(self.album).encode('utf-8'))
+        query = quote(self.escape_query(self.album))
         if artist:
-            #If we have artist, we make more accurate search
-            artist = self.escape_query(artist).encode('utf-8')
-            query += quote(' AND artist:%s' % artist)
+            #If we have artist, we can make more accurate search
+            query += quote(' AND artist:%s' % self.escape_query(artist))
         self.url = url % query
-        self.img = 'http://ec%d.images-amazon.com/images/P/%s.%02d.LZZZZZZZ.jpg'
+        #Amazon image url pattern.
+        self.img = 'http://ec%d.images-amazon.com/images/P/%s.%02d.LZZZZZZ.jpg'
         self.img = self.img % (randint(1,3), '%s', randint(1, 9))
 
-    def run_mbid(self):
+    def run_with_mbid(self):
         url = 'http://musicbrainz.org/ws/2/release/'+self.mbid
         try:
             xml = parseString(urlopen(url).read())
@@ -206,17 +206,19 @@ class MusicBrainzCover(object):
                     asin = xml.getElementsByTagName('asin')[0]
                     asin = asin.childNodes[0].toxml()
                     return self.download_image(asin)
+        except URLError:
+            debugger('Failed to open %s'%url)
         except:
-            return False
+            debugger('Unexpected error in MB')
         return False
 
     def run(self):
-        if self.have_mbid and is_enabled('MB') and self.run_mbid():
-            #run mbid search, if possible.
+        #Run search with MBID, if possible.
+        if self.mbid and is_enabled('MB') and self.run_with_mbid():
             return True
-
         if not self.passed or not is_enabled('MB'):
             return False
+
         try:
             xml = parseString(urlopen(self.url).read())
             release_list = xml.getElementsByTagName('release-list')[0]
@@ -235,14 +237,16 @@ class MusicBrainzCover(object):
                     asin = album.getElementsByTagName('asin')[0]
                     asin = asin.childNodes[0].toxml()
                     return self.download_image(asin)
+        except URLError:
+            debugger('Failet to open %s'%self.url)
         except:
-            return False
+            debugger('MB - unexpected error')
         return False
 
     def download_image(self, asin):
         url = self.img % asin
+        #We need to check, if image is not 1x1 empty gif.
         try:
-            #We need to check, if image is not 1x1 empty gif.
             image = urlopen(url)
             #I think 500 bytes is pretty reasonable size for this check.
             if image.headers['content-length'] < 500:
@@ -250,7 +254,7 @@ class MusicBrainzCover(object):
             else:
                 image.close()
         except:
-            return False
+            debugger('Failed to open %s'%url)
         return save(url, self.path, self.album, '.jpg')
 
 
@@ -262,35 +266,27 @@ class AmazonCover(object):
     AmazonCover(quodlibet.player.playlist.song).run()
     """
     def __init__(self, song):
-        self.passed = True
         key = 'AKIAJVYURRT3Y62RJNEA'
         sec = 'JMh0Rk3ZvRjsvPxTppJWkHe/gMVd7Ws4XsSIZW/0'
-        self.amz = {}
-        amzns = ['CA', 'DE', 'FR', 'JP', 'US', 'UK']
-        try:
-            import bottlenose
-            for amzn in amzns:
-                self.amz[amzn] = bottlenose.Amazon(key, sec, Region = amzn)
-        except:
+        #Initiate Amazon API
+        self.amazons = {}
+        regions = ['CA', 'DE', 'FR', 'JP', 'US', 'UK']
+        for region in regions:
+            self.amazons[region] = bottlenose.Amazon(key, sec, Region = region)
+
+        self.artist = song.get('artist', '').decode('utf-8')
+        self.album = song.get('album', '').decode('utf-8')
+        self.path = path.dirname(song['~filename'])
+        if not self.artist or not self.album:
             self.passed = False
-            print_w(_('[Automatic Album Art] bottlenose package is missing. '
-                      'Amazon search disabled.'))
-        try:
-            self.artist = song['artist'].decode('utf-8')
-            self.album = song['album'].decode('utf-8')
-            self.path = path.dirname(song['~filename'])
-            if not self.artist or not self.album:
-                self.passed = False
-        except:
-            self.passed = False
+        else:
+            self.passed = True
 
     def run(self):
-        if len(self.amz) == 0 or not self.passed or not is_enabled('A'):
+        if not self.passed or not is_enabled('A'):
             return False
-        for amazon in self.amz:
-            amazon = self.amz[amazon]
+        for region, amazon in self.amazons.items():
             try:
-                arg = {}
                 xml = parseString(amazon.ItemSearch(SearchIndex = 'Music',
                                                     ResponseGroup = 'Images',
                                                     Title = self.album,
@@ -299,15 +295,13 @@ class AmazonCover(object):
                 result_count = int(result_count.childNodes[0].toxml())
                 if result_count == 0 or result_count > 5:
                     continue
-                try:
-                    image = xml.getElementsByTagName('LargeImage')[0]
-                    image = image.getElementsByTagName('URL')[0]
-                    image = image.childNodes[0].toxml()
-                except:
-                    continue
+                image = xml.getElementsByTagName('LargeImage')[0]
+                image = image.getElementsByTagName('URL')[0]
+                image = image.childNodes[0].toxml()
                 extension = path.splitext(image)[1]
                 return save(image, self.path, self.album, extension)
             except:
+                debugger('amazon.%s - Unexpected error'%region)
                 continue
         return False
 
@@ -321,49 +315,51 @@ class VGMdbCover(object):
     """
 
     def __init__(self, song):
-        self.passed = True
-        self.second_run = False
-        try:
-            self.path = path.dirname(song['~filename'])
-            self.album = song['album'].encode('utf-8')
-            self.artist = song['artist'].encode('utf-8')
-        except:
-            self.passed = False
+        self.path = path.dirname(song['~filename'])
+        self.album = song.get('album','').encode('utf-8')
+        self.artist = song.get('artist', '').encode('utf-8')
         if not self.album or not self.artist:
             self.passed = False
+        else:
+            self.passed = True
 
         url = 'http://vgmdb.net/search?q=%%22%s%%22%%20%%22%s%%22'
         self.url = url % (quote(self.artist), quote(self.album))
 
-        try:
-            keys = ['labelid', 'catalog', 'catalog#']
-            self.label = [song[key] for key in keys if song.get(key, False)][0]
-            self.has_label = True
-        except:
-            self.has_label = False
+        keys = ['labelid', 'catalog', 'catalog#']
+        self.label = [song[key] for key in keys if song.get(key, False)]
+        if self.label:
+            self.label = self.label[0]
 
-    def run_label(self):
+    def run_with_label(self):
         url = 'http://vgmdb.net/search?q=%s' % quote(self.label)
         try:
-            xml = urlopen(url)
-            if 'http://vgmdb.net/album/' in xml.url:
-                xml = BeautifulSoup(xml.read())
+            site = urlopen(url)
+            if 'http://vgmdb.net/album/' in site.url:
+                xml = BeautifulSoup(site.read())
                 c = urljoin(self.url,
                             xml.find('img', {'id':'coverart'})['src'])
                 extension = path.splitext(c)[1]
                 return save(c, self.path, self.album, extension)
+        except URLError:
+            debugger('Failed to open %s'%url)
+        except IndexError:
+            #If theres no image in page, xml.find will raise index error
+            pass
         except:
-            return False
+            debugger('VGMdb - Unexpected error')
+        return False
 
     def run(self):
-        if self.has_label and is_enabled('VGM') and self.run_label():
+        #Run search with label first
+        if self.label and is_enabled('VGM') and self.run_label():
             return True
         if not self.passed and not is_enabled('VGM'):
             return False
         try:
-            xml = urlopen(self.url)
-            if 'http://vgmdb.net/album/' in xml.url:
-                xml = BeautifulSoup(xml.read())
+            site = urlopen(self.url)
+            if 'http://vgmdb.net/album/' in site.url:
+                xml = BeautifulSoup(site.read())
                 c = urljoin(self.url,
                             xml.find('img', {'id':'coverart'})['src'])
                 extension = path.splitext(c)[1]
@@ -371,13 +367,15 @@ class VGMdbCover(object):
             else:
                 if self.second_run:
                     return False
-                #Search without artist
-                url = 'http://vgmdb.net/search?q=%%22%s%%22'
                 self.second_run = True
+                url = 'http://vgmdb.net/search?q=%%22%s%%22'
                 self.url = url % quote(self.album)
                 return self.run()
+        except URLError:
+            debugger('Failed to open %s' % self.url)
         except:
-            return False
+            debugger('VGMdb - Unexpected error')
+        return False
 
 
 class CoverFetcher(EventPlugin):
@@ -385,7 +383,7 @@ class CoverFetcher(EventPlugin):
     PLUGIN_NAME = _("Automatic Album Art")
     PLUGIN_DESC = _("Automatically downloads and saves album art for currently"
                     " playing album.")
-    PLUGIN_VERSION = "0.8"
+    PLUGIN_VERSION = "0.85"
 
 
     def PluginPreferences(self, parent):
@@ -490,6 +488,3 @@ class CoverFetcher(EventPlugin):
 
     def plugin_on_song_started(self, song):
         Cover(song).start()
-
-    def enabled(self):
-        self.plugin_on_song_started(player.song)
