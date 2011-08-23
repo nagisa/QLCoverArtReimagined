@@ -352,7 +352,7 @@ class VGMdbCover(object):
 
     def run(self):
         #Run search with label first
-        if self.label and is_enabled('VGM') and self.run_label():
+        if self.label and is_enabled('VGM') and self.run_with_label():
             return True
         if not self.passed and not is_enabled('VGM'):
             return False
