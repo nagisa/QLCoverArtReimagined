@@ -152,7 +152,7 @@ class LastFMCover(object):
                 extension = path.splitext(image_url)[1]
                 return save(image_url, self.path, self.album, extension)
         except URLError, e:
-            #Last.fm produces 400 error if album not found.
+            #Last.fm produces 400 error if artist/album not found.
             #It's expected error, and should produce no message.
             if not int(e.code) == 400:
                 debugger('Failed to open %s'%self.url)
