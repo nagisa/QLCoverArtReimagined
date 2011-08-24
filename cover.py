@@ -487,4 +487,7 @@ class CoverFetcher(EventPlugin):
         return vb
 
     def plugin_on_song_started(self, song):
-        Cover(song).start()
+        #Sometimes song is None, then Thread initiated without real reason
+        #and just produces error.
+        if song:
+            Cover(song).start()
