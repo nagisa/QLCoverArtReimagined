@@ -19,7 +19,7 @@ from urlparse import urljoin
 from BeautifulSoup import BeautifulSoup
 import bottlenose
 
-debug = False
+debug = True
 if debug:
     from sys import exc_info
     from traceback import print_exception
@@ -75,7 +75,7 @@ def check_existing_cover(album, file_path):
         return False
     directory = path.dirname(file_path)
     for ext in ['.png', '.jpg', '.jpeg', '.gif']:
-        if path.exists(path.join(directory, fs_strip(album) + extension)):
+        if path.exists(path.join(directory, fs_strip(album) + ext)):
             return True
     return False
 
