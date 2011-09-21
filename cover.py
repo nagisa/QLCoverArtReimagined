@@ -38,47 +38,6 @@ def fs_strip(s, replace=None):
     illegals = '/?<>\:*|"^' #^ is illegal in FAT, only / is illegal in Unix.
     return reduce(lambda q, c: q.replace(c, replace), illegals, s)
 
-def save(url, directory, album, ext):
-    """
-    Downloads and saves album art image.
-
-    Arguments:
-    url -- link to image on WWW.
-    directory -- where to save image.
-    album -- album name.
-    ext -- image extension.
-    Usage:
-    save("http://...LZZZZ.jpg", "/home/.../music", "Abbey Road", "jpg")
-    """
-    image_path = path.join(directory, fs_strip(album) + ext)
-    try:
-        image_file = open(image_path, "w+")
-        image_file.write(urlopen(url).read())
-        image_file.close()
-        return True
-    except:
-        debugger('Failed to save image from %s to %s' %(url, image_path))
-    return False
-
-def check_existing_cover(album, file_path):
-    """
-    Checks if cover art already exists.
-
-    Arguments:
-    album -- album name.
-    file_path -- full path to song, including filename.
-    Usage:
-    check_existing_cover('Abbey Road', '/home.../music/song.mp3')
-    """
-    #Force redownload of all covers option.
-    if is_enabled('reload'):
-        return False
-    directory = path.dirname(file_path)
-    for ext in ['.png', '.jpg', '.jpeg', '.gif']:
-        if path.exists(path.join(directory, fs_strip(album) + ext)):
-            return True
-    return False
-
 def is_enabled(tag, default=True):
     """
     Checks if plugin is enabled, give it's tag as argument.
@@ -106,11 +65,46 @@ class Cover(Thread):
                       VGMdbCover]
 
     def run(self):
-        if check_existing_cover(self.song['album'], self.song['~filename']):
+        if self.check_existing_cover():
             return True
         for fetcher in self.order:
-            if fetcher(self.song).run():
+            image = fetcher(self.song).run()
+            if image and self.save(image):
                 return True
+        return False
+
+    def save(self, link):
+        directory = path.dirname(self.song['~filename'])
+        #May have album name, labelid, and so on as name...
+        image_name = "%s cover" + path.splitext(str(link))[1]
+        if is_enabled('labelid_names') and self.song.get('labelid', False):
+            image_name = image_name % self.song['labelid']
+        elif is_enabled('mbid_names') and self.song.get('musicbrainz_albumid', False):
+            image_name = image_name % self.song['musicbrainz_albumid']
+        elif self.song.get('album', False):
+            image_name = image_name % fs_strip(self.song['album'])
+        else:
+            #Could not construct name for image
+            return False
+        image_path = path.join(directory, image_name)
+        try:
+            image_file = open(image_path, "w+")
+            image_file.write(urlopen(link).read())
+            image_file.close()
+            return True
+        except:
+            debugger('Failed to save image from %s to %s' %(link, image_path))
+        return False
+
+    def check_existing_cover(self):
+        """
+        Checks if cover art already exists.
+        Uses quodlibet cover matching algorithm.
+        """
+        if is_enabled('reload'):
+            return False
+        if not self.song.find_cover() == None:
+            return True
         return False
 
 
@@ -150,7 +144,7 @@ class LastFMCover(object):
                     continue
                 image_url = image.childNodes[0].toxml()
                 extension = path.splitext(image_url)[1]
-                return save(image_url, self.path, self.album, extension)
+                return image_url
         except URLError, e:
             #Last.fm produces 400 error if artist/album not found.
             #It's expected error, and should produce no message.
@@ -217,8 +211,10 @@ class MusicBrainzCover(object):
 
     def run(self):
         #Run search with MBID, if possible.
-        if self.mbid and is_enabled('MB') and self.run_with_mbid():
-            return True
+        if self.mbid and is_enabled('MB'):
+            image = self.run_with_mbid()
+            if image:
+                return image
         if not self.passed or not is_enabled('MB'):
             return False
 
@@ -258,7 +254,7 @@ class MusicBrainzCover(object):
                 image.close()
         except:
             debugger('Failed to open %s'%url)
-        return save(url, self.path, self.album, '.jpg')
+        return url
 
 
 class AmazonCover(object):
@@ -302,7 +298,7 @@ class AmazonCover(object):
                 image = image.getElementsByTagName('URL')[0]
                 image = image.childNodes[0].toxml()
                 extension = path.splitext(image)[1]
-                return save(image, self.path, self.album, extension)
+                return image
             except:
                 debugger('amazon.%s - Unexpected error'%region)
                 continue
@@ -343,7 +339,7 @@ class VGMdbCover(object):
                 c = urljoin(self.url,
                             xml.find('img', {'id':'coverart'})['src'])
                 extension = path.splitext(c)[1]
-                return save(c, self.path, self.album, extension)
+                return c
         except URLError:
             debugger('Failed to open %s'%url)
         except IndexError:
@@ -355,8 +351,10 @@ class VGMdbCover(object):
 
     def run(self):
         #Run search with label first
-        if self.label and is_enabled('VGM') and self.run_with_label():
-            return True
+        if self.label and is_enabled('VGM'):
+            label = self.run_with_label()
+            if label:
+                return label
         if not self.passed and not is_enabled('VGM'):
             return False
         try:
@@ -366,7 +364,7 @@ class VGMdbCover(object):
                 c = urljoin(self.url,
                             xml.find('img', {'id':'coverart'})['src'])
                 extension = path.splitext(c)[1]
-                return save(c, self.path, self.album, extension)
+                return c
             else:
                 if getattr(self, 'second_run', False):
                     return False
@@ -386,7 +384,7 @@ class CoverFetcher(EventPlugin):
     PLUGIN_NAME = _("Automatic Album Art")
     PLUGIN_DESC = _("Automatically downloads and saves album art for currently"
                     " playing album.")
-    PLUGIN_VERSION = "0.85"
+    PLUGIN_VERSION = "0.9"
 
 
     def PluginPreferences(self, parent):
@@ -423,7 +421,25 @@ class CoverFetcher(EventPlugin):
         rld.tag = 'reload'
         rld.connect('toggled', cb_toggled)
         rld.set_active(is_enabled(rld.tag, False))
+        #Use programmatic tags for image names?
+        labelid = gtk.CheckButton(_('Use Record Label ID for image names'))
+        tip = _('Your image name will look like "PCS-7088 cover.jpg". '
+                'Will fallback to another options if there\'s no labelid set.')
+        tooltip.set_tip(labelid, tip)
+        labelid.tag = 'labelid_names'
+        labelid.connect('toggled', cb_toggled)
+        labelid.set_active(is_enabled(labelid.tag, True))
+        mbid = gtk.CheckButton(_('Use MusicBrainz ID for image names'))
+        tip = _('Your image name will look like "274a6c72-39a5-498d-9ad1'
+        '-97ca9de1fe9a cover.jpg". Will fallback to another options if there\'s'
+        ' no mbid set.')
+        tooltip.set_tip(mbid, tip)
+        mbid.tag = 'mbid_names'
+        mbid.connect('toggled', cb_toggled)
+        mbid.set_active(is_enabled(mbid.tag, True))
         settings.pack_start(rld)
+        settings.pack_start(labelid)
+        settings.pack_start(mbid)
         notebook.append_page(settings, label)
 
         #MusicBrainz settings tab
@@ -492,5 +508,7 @@ class CoverFetcher(EventPlugin):
     def plugin_on_song_started(self, song):
         #Sometimes song is None, then Thread initiated without real reason
         #and just produces error.
-        if song:
+        if not song == None:
             Cover(song).start()
+        else:
+            return
