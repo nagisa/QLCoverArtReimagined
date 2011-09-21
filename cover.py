@@ -8,6 +8,7 @@
 
 from quodlibet.plugins.events import EventPlugin
 from quodlibet.player import playlist as player
+from quodlibet.widgets import main
 from quodlibet import config
 from os import path
 from urllib2 import urlopen, URLError
@@ -70,6 +71,9 @@ class Cover(Thread):
         for fetcher in self.order:
             image = fetcher(self.song).run()
             if image and self.save(image):
+                # Show image instantly!
+                # Thanks to http://code.google.com/p/quodlibet/issues/detail?id=780#c22
+                main.image.set_song(None, self.song)
                 return True
         return False
 
