@@ -76,11 +76,12 @@ class Cover(Thread):
     def save(self, link):
         directory = path.dirname(self.song['~filename'])
         #May have album name, labelid, and so on as name...
-        image_name = "%s cover" + path.splitext(str(link))[1]
+        if is_enabled('cover_names', False):
+            image_name = "%s cover" + path.splitext(str(link))[1]
+        else:
+            image_name = "%s" + path.splitext(str(link))[1]
         if is_enabled('labelid_names') and self.song.get('labelid', False):
             image_name = image_name % self.song['labelid']
-        elif is_enabled('mbid_names') and self.song.get('musicbrainz_albumid', False):
-            image_name = image_name % self.song['musicbrainz_albumid']
         elif self.song.get('album', False):
             image_name = image_name % fs_strip(self.song['album'])
         else:
@@ -423,23 +424,23 @@ class CoverFetcher(EventPlugin):
         rld.set_active(is_enabled(rld.tag, False))
         #Use programmatic tags for image names?
         labelid = gtk.CheckButton(_('Use Record Label ID for image names'))
-        tip = _('Your image name will look like "PCS-7088 cover.jpg". '
+        tip = _('Your image name will look like "PCS-7088.jpg". '
                 'Will fallback to another options if there\'s no labelid set.')
         tooltip.set_tip(labelid, tip)
         labelid.tag = 'labelid_names'
         labelid.connect('toggled', cb_toggled)
         labelid.set_active(is_enabled(labelid.tag, True))
-        mbid = gtk.CheckButton(_('Use MusicBrainz ID for image names'))
-        tip = _('Your image name will look like "274a6c72-39a5-498d-9ad1'
-        '-97ca9de1fe9a cover.jpg". Will fallback to another options if there\'s'
-        ' no mbid set.')
-        tooltip.set_tip(mbid, tip)
-        mbid.tag = 'mbid_names'
-        mbid.connect('toggled', cb_toggled)
-        mbid.set_active(is_enabled(mbid.tag, True))
+        cover = gtk.CheckButton(_('Add "cover" to filename.'
+                                 ' May cause unexpected behavior.'))
+        tip = _('Don\'t do this, unless you really want to see cover on every'
+                ' song.')
+        tooltip.set_tip(cover, tip)
+        cover.tag = 'cover_names'
+        cover.connect('toggled', cb_toggled)
+        cover.set_active(is_enabled(cover.tag, False))
         settings.pack_start(rld)
         settings.pack_start(labelid)
-        settings.pack_start(mbid)
+        settings.pack_start(cover)
         notebook.append_page(settings, label)
 
         #MusicBrainz settings tab
