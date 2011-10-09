@@ -71,7 +71,9 @@ class Cover(Thread):
             if image and self.save(image):
                 # Show image instantly!
                 # Thanks to http://code.google.com/p/quodlibet/issues/detail?id=780#c22
-                main.image.set_song(None, self.song)
+                # Don't show image, if quodlibet's already playing another song.
+                if player.song['~filename'] == self.song['~filename']:
+                    main.image.set_song(None, self.song)
                 return True
         return False
 
