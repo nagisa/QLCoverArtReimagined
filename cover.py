@@ -18,7 +18,6 @@ from threading import Thread
 from random import randint
 from urlparse import urljoin
 from BeautifulSoup import BeautifulSoup
-import bottlenose
 
 debug = False
 if debug:
@@ -64,7 +63,6 @@ class Cover(Thread):
                       LastFMCover,
                       AmazonCover,
                       VGMdbCover]
-
     def run(self):
         if self.check_existing_cover():
             return True
@@ -123,20 +121,20 @@ class LastFMCover(object):
     def __init__(self, song):
         api = 'http://ws.audioscrobbler.com/2.0/'
         apikey = '2dd4db6614e0f314b4401a92dce5e04a'
-        self.path = path.dirname(song['~filename'])
         self.album = song.get('album', '').encode('utf-8')
         self.artist = song.get('artist', '').encode('utf-8')
-        if not self.album or not self.artist:
-            self.passed = False
-        else:
-            self.passed = True
         url = "%s?method=album.getinfo&api_key=%s&artist=%s&album=%s"
         self.url = url % (api, apikey, quote(self.artist), quote(self.album))
 
-    def run(self):
-        if not self.passed or not is_enabled('LFM'):
+    def passes(self):
+        if not self.album or not self.artist:
             return False
+        else:
+            return True
 
+    def run(self):
+        if not self.passes() or not is_enabled('LFM'):
+            return False
         try:
             content = parseString(urlopen(self.url).read())
             parent = content.getElementsByTagName('lfm')[0]
@@ -148,7 +146,6 @@ class LastFMCover(object):
                 if len(image.childNodes) == 0:
                     continue
                 image_url = image.childNodes[0].toxml()
-                extension = path.splitext(image_url)[1]
                 return image_url
         except URLError, e:
             #Last.fm produces 400 error if artist/album not found.
@@ -184,81 +181,80 @@ class MusicBrainzCover(object):
         self.album = song.get('album', '').encode('utf-8')
         artist = song.get('artist', '').encode('utf-8')
         self.treshold = self.get_treshold()
-        self.path = path.dirname(song['~filename'])
-        self.mbid = song.get('musicbrainz_albumid', False)
-        if not self.album:
-            self.passed = False
-        else:
-            self.passed = True
+
+        #MBID url
+        if song.get('musicbrainz_albumid', False):
+            mbid = song['musicbrainz_albumid']
+            self.mbid_url = 'http://musicbrainz.org/ws/2/release/%s' % mbid
+
+        #Artist - Album url
         url = 'http://musicbrainz.org/ws/2/release?limit=4&query=%s'
         query = quote(self.escape_query(self.album))
         if artist:
             #If we have artist, we can make more accurate search
             query += quote(' AND artist:%s' % self.escape_query(artist))
         self.url = url % query
+
         #Amazon image url pattern.
         self.img = 'http://ec%d.images-amazon.com/images/P/%s.%02d.LZZZZZZ.jpg'
         self.img = self.img % (randint(1,3), '%s', randint(1, 9))
 
-    def run_with_mbid(self):
-        url = 'http://musicbrainz.org/ws/2/release/'+self.mbid
-        try:
-            xml = parseString(urlopen(url).read())
-            if not len(xml.getElementsByTagName('asin')) == 0:
-                    asin = xml.getElementsByTagName('asin')[0]
-                    asin = asin.childNodes[0].toxml()
-                    return self.download_image(asin)
-        except URLError:
-            debugger('Failed to open %s'%url)
-        except:
-            debugger('Unexpected error in MB')
-        return False
+    def passes(self, mbid = False):
+        if mbid:
+            return hasattr(self, 'mbid_url')
+        else:
+            return bool(self.url) and bool(self.album)
 
     def run(self):
         #Run search with MBID, if possible.
-        if self.mbid and is_enabled('MB'):
-            image = self.run_with_mbid()
-            if image:
-                return image
-        if not self.passed or not is_enabled('MB'):
-            return False
-
-        try:
-            xml = parseString(urlopen(self.url).read())
-            release_list = xml.getElementsByTagName('release-list')[0]
-            if int(release_list.getAttribute('count')) == 0:
+        if is_enabled('MB'):
+            if self.passes(mbid = True):
+                try:
+                    xml = parseString(urlopen(self.mbid_url).read())
+                    if not len(xml.getElementsByTagName('asin')) == 0:
+                        asin = xml.getElementsByTagName('asin')[0]
+                        asin = asin.childNodes[0].toxml()
+                        return self.make_image_url(asin)
+                except URLError:
+                    debugger('Failet to open %s'%self.mbid_url)
+                except:
+                    debugger('MB - unexpected error')
+            if self.passes():
+                try:
+                    xml = parseString(urlopen(self.url).read())
+                    release_list = xml.getElementsByTagName('release-list')[0]
+                    if int(release_list.getAttribute('count')) == 0:
+                        return False
+                    albums = release_list.getElementsByTagName('release')
+                    for album in albums:
+                        if int(album.getAttribute('ext:score')) < self.treshold:
+                            break
+                        if len(album.getElementsByTagName('asin')) == 0:
+                            continue
+                        else:
+                            asin = album.getElementsByTagName('asin')[0]
+                            asin = asin.childNodes[0].toxml()
+                            return self.make_image_url(asin)
+                except URLError:
+                    debugger('Failet to open %s'%self.url)
+                except:
+                    debugger('MB - unexpected error')
+            else:
                 return False
-            albums = release_list.getElementsByTagName('release')
-            for album in albums:
-                if int(album.getAttribute('ext:score')) < self.treshold:
-                    #Albums are ordered by score, so looping through everything
-                    #is useless...
-                    break
-                if len(album.getElementsByTagName('asin')) == 0:
-                    #TODO: Images that are not from amazon
-                    continue
-                else:
-                    asin = album.getElementsByTagName('asin')[0]
-                    asin = asin.childNodes[0].toxml()
-                    return self.download_image(asin)
-        except URLError:
-            debugger('Failet to open %s'%self.url)
-        except:
-            debugger('MB - unexpected error')
         return False
 
-    def download_image(self, asin):
+    def make_image_url(self, asin):
         url = self.img % asin
         #We need to check, if image is not 1x1 empty gif.
         try:
             image = urlopen(url)
-            #I think 500 bytes is pretty reasonable size for this check.
+            #500 bytes treshold is pretty reasonable for this check.
             if image.headers['content-length'] < 500:
                 return False
             else:
                 image.close()
         except:
-            debugger('Failed to open %s'%url)
+            debugger('Failed to open image %s'%url)
         return url
 
 
@@ -270,24 +266,30 @@ class AmazonCover(object):
     AmazonCover(quodlibet.player.playlist.song).run()
     """
     def __init__(self, song):
-        key = 'AKIAJVYURRT3Y62RJNEA'
-        sec = 'JMh0Rk3ZvRjsvPxTppJWkHe/gMVd7Ws4XsSIZW/0'
-        #Initiate Amazon API
+        try:
+            import bottlenose
+            self.bottlenose = True
+        except:
+            debugger('No bottlenose package!')
+            self.bottlenose = False
+            return None
+        key = 'AKIAIMIN4TM6PFNAFHLQ'
+        sec = 'pq5/QktQyrBqYeH0ikaymv3vV6ngyF8OV+zi+nMk'
         self.amazons = {}
         regions = ['CA', 'DE', 'FR', 'JP', 'US', 'UK']
         for region in regions:
             self.amazons[region] = bottlenose.Amazon(key, sec, Region = region)
-
         self.artist = song.get('artist', '').decode('utf-8')
         self.album = song.get('album', '').decode('utf-8')
-        self.path = path.dirname(song['~filename'])
-        if not self.artist or not self.album:
-            self.passed = False
+
+    def passes(self):
+        if not self.bottlenose or not self.album or not self.artist:
+            return False
         else:
-            self.passed = True
+            return True
 
     def run(self):
-        if not self.passed or not is_enabled('A'):
+        if not self.passes() or not is_enabled('A'):
             return False
         for region, amazon in self.amazons.items():
             try:
@@ -302,7 +304,6 @@ class AmazonCover(object):
                 image = xml.getElementsByTagName('LargeImage')[0]
                 image = image.getElementsByTagName('URL')[0]
                 image = image.childNodes[0].toxml()
-                extension = path.splitext(image)[1]
                 return image
             except:
                 debugger('amazon.%s - Unexpected error'%region)
@@ -317,66 +318,46 @@ class VGMdbCover(object):
     Usage:
     VGMdbCover(quodlibet.player.playlist.song).run()
     """
-
     def __init__(self, song):
-        self.path = path.dirname(song['~filename'])
         self.album = song.get('album','').encode('utf-8')
         self.artist = song.get('artist', '').encode('utf-8')
-        if not self.album or not self.artist:
-            self.passed = False
-        else:
-            self.passed = True
-
         url = 'http://vgmdb.net/search?q=%%22%s%%22%%20%%22%s%%22'
         self.url = url % (quote(self.artist), quote(self.album))
 
-        keys = ['labelid', 'catalog', 'catalog#']
-        self.label = [song[key] for key in keys if song.get(key, False)]
-        if self.label:
-            self.label = self.label[0]
+        if song.get('labelid', False):
+            label = quote(song['labelid'])
+            self.label_url = 'http://vgmdb.net/search?q=%s' % label
+        else:
+            self.label_url = False
 
-    def run_with_label(self):
-        url = 'http://vgmdb.net/search?q=%s' % quote(self.label)
-        try:
-            site = urlopen(url)
-            if 'http://vgmdb.net/album/' in site.url:
-                xml = BeautifulSoup(site.read())
-                c = urljoin(self.url,
-                            xml.find('img', {'id':'coverart'})['src'])
-                extension = path.splitext(c)[1]
-                return c
-        except URLError:
-            debugger('Failed to open %s'%url)
-        except IndexError:
-            #If theres no image in page, xml.find will raise index error
-            pass
-        except:
-            debugger('VGMdb - Unexpected error')
-        return False
+    def passes(self, ):
+        if not self.album or not self.artist:
+            return False
+        else:
+            return True
+
+    def parse_url(self, url):
+        replaceables = ['/assets/covers-medium/', '/assets/covers-thumb/']
+        replacement = '/assets/covers/'
+        url = reduce(lambda q, c: q.replace(c, replacement), replaceables, url)
+        return urljoin('http://vgmdb.net/', url)
 
     def run(self):
-        #Run search with label first
-        if self.label and is_enabled('VGM'):
-            label = self.run_with_label()
-            if label:
-                return label
-        if not self.passed and not is_enabled('VGM'):
+        if not is_enabled('VGM') or not self.passes():
             return False
         try:
-            site = urlopen(self.url)
-            if 'http://vgmdb.net/album/' in site.url:
-                xml = BeautifulSoup(site.read())
-                c = urljoin(self.url,
-                            xml.find('img', {'id':'coverart'})['src'])
-                extension = path.splitext(c)[1]
-                return c
-            else:
-                if getattr(self, 'second_run', False):
-                    return False
-                self.second_run = True
-                url = 'http://vgmdb.net/search?q=%%22%s%%22'
-                self.url = url % quote(self.album)
-                return self.run()
+            if self.label_url: #Search by label
+                site = urlopen(self.label_url)
+                if 'http://vgmdb.net/album/' in site.url:
+                    xml = BeautifulSoup(site.read())
+                    image = xml.find('img', {'id':'coverart'})['src']
+                    return self.parse_url(image)
+            else: #Search by artist - album.
+                site = urlopen(self.url)
+                if 'http://vgmdb.net/album/' in site.url:
+                    xml = BeautifulSoup(site.read())
+                    image = xml.find('img', {'id':'coverart'})['src']
+                    return self.parse_url(image)
         except URLError:
             debugger('Failed to open %s' % self.url)
         except:
@@ -415,6 +396,7 @@ class CoverFetcher(EventPlugin):
         #Another things to be used though whole function
         tooltip = gtk.Tooltips()
         notebook = gtk.Notebook()
+        warnings = []
         vb = gtk.VBox(spacing = 5)
 
         #General settings tab
@@ -485,6 +467,14 @@ class CoverFetcher(EventPlugin):
 
         #Amazon settings tab
         label = gtk.Label(_('Amazon'))
+        try:
+            import bottlenose
+            notice = None
+        except:
+            label.set_markup('<b><span foreground="red">%s</span></b>' % _('Amazon'))
+            warnings.append(gtk.Label(_('Amazon: Amazon cover search '
+                                        'requires Python bottlenose package!')))
+
         settings = gtk.VBox(spacing = 5)
 
         enabled = gtk.CheckButton('Enabled')
@@ -508,6 +498,13 @@ class CoverFetcher(EventPlugin):
         notebook.append_page(settings, label)
 
         vb.pack_start(notebook, True, True)
+
+        #Warnings from fetchers
+        for warning in warnings:
+            text = warning.get_text()
+            warning.set_markup('<span foreground="red">%s</span>' % text)
+            vb.pack_start(warning, True, True)
+
         return vb
 
     def plugin_on_song_started(self, song):
