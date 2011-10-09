@@ -17,7 +17,7 @@ from xml.dom.minidom import parseString
 from threading import Thread
 from random import randint
 from urlparse import urljoin
-from BeautifulSoup import BeautifulSoup
+
 
 debug = False
 if debug:
@@ -345,6 +345,11 @@ class VGMdbCover(object):
         return urljoin('http://vgmdb.net/', url)
 
     def run(self):
+        try:
+            from BeautifulSoup import BeautifulSoup
+        except ImportError:
+            debugger('No BeautifulSoup package!')
+            return False
         if not is_enabled('VGM') or not self.passes():
             return False
         try:
@@ -471,8 +476,7 @@ class CoverFetcher(EventPlugin):
         label = gtk.Label(_('Amazon'))
         try:
             import bottlenose
-            notice = None
-        except:
+        except ImportError:
             label.set_markup('<b><span foreground="red">%s</span></b>' % _('Amazon'))
             warnings.append(gtk.Label(_('Amazon: Amazon cover search '
                                         'requires Python bottlenose package!')))
@@ -489,6 +493,12 @@ class CoverFetcher(EventPlugin):
 
         #VGMdb settings tab
         label = gtk.Label(_('VGMdb'))
+        try:
+            import BeautifulSoup
+        except ImportError:
+            label.set_markup('<b><span foreground="red">%s</span></b>' % _('VGMdb'))
+            warnings.append(gtk.Label(_('VGMdb: VGMdb cover search requires'
+                                        ' Python BeautifulSoup package!')))
         settings = gtk.VBox(spacing = 5)
 
         enabled = gtk.CheckButton('Enabled')
