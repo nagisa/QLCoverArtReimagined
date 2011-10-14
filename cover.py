@@ -17,6 +17,7 @@ from xml.dom.minidom import parseString
 from threading import Thread
 from random import randint
 from urlparse import urljoin
+import struct
 
 
 debug = False
@@ -66,19 +67,81 @@ class Cover(Thread):
     def run(self):
         if self.check_existing_cover():
             return True
+        images = []
         for fetcher in self.order:
             image = fetcher(self.song).run()
-            if image and self.save(image):
-                # Show image instantly!
-                # Thanks to http://code.google.com/p/quodlibet/issues/detail?id=780#c22
-                # Don't show image, if quodlibet's already playing another song.
-                if player.song['~filename'] == self.song['~filename']:
-                    main.image.set_song(None, self.song)
+            if is_enabled('get_biggest') and image:
+                images.append(image)
+            elif not is_enabled('get_biggest') and image and self.save(image):
                 return True
+        if images:
+            return self.save(images)
         return False
 
-    def save(self, link):
+    def reload_image(self):
+        # Show image instantly!
+        # Thanks to http://code.google.com/p/quodlibet/issues/detail?id=780#c22
+        # Don't show image, if quodlibet's already playing another song.
+        if player.song['~filename'] == self.song['~filename']:
+            main.image.set_song(None, self.song)
+
+    def biggest_image(self, images):
+        tmp = []
+        for url in images:
+            try:
+                h = -1
+                w = -1
+                data = urlopen(url).read(24)
+                size = len(data)
+                if (size >= 10) and data[:6] in ('GIF87a', 'GIF89a'):
+                    w, h = struct.unpack("<HH", data[6:10])
+                    tmp.append((url, int(w)*int(h)))
+                    continue
+                elif ((size >= 24) and data.startswith('\211PNG\r\n\032\n')
+                    and (data[12:16] == 'IHDR')):
+                    w, h = struct.unpack(">LL", data[16:24])
+                    tmp.append((url, int(w)*int(h)))
+                    continue
+                elif (size >= 16) and data.startswith('\211PNG\r\n\032\n'):
+                    w, h = struct.unpack(">LL", data[8:16])
+                    tmp.append((url, int(w)*int(h)))
+                    continue
+                #JPEG suks :D
+                image = urlopen(url)
+                data = str(image.read(2))
+                if data.startswith('\377\330'):
+                    b = image.read(1)
+                    try:
+                        while (b and ord(b) != 0xDA):
+                            while (ord(b) != 0xFF): b = image.read(1)
+                            while (ord(b) == 0xFF): b = image.read(1)
+                            if (ord(b) >= 0xC0 and ord(b) <= 0xC3):
+                                image.read(3)
+                                h, w = struct.unpack(">HH", image.read(4))
+                                break
+                            else:
+                                image.read(int(struct.unpack(">H", image.read(2))[0])-2)
+                            b = image.read(1)
+                        tmp.append((url, int(w)*int(h)))
+                        continue
+                    except struct.error:
+                        pass
+                    except ValueError:
+                        pass
+            except URLError:
+                debugger("Failed to open image at %s" % url)
+            except:
+                debugger("Failed to get image size of %s" % url)
+                tmp.append((url, 0))
+                continue
+        return max(tmp, key=lambda x: x[1])
+
+    def save(self, images):
         directory = path.dirname(self.song['~filename'])
+        try:
+            link = "" + images
+        except TypeError:
+            link = self.biggest_image(images)[0]
         #May have album name, labelid, and so on as name...
         if is_enabled('cover_names', False):
             image_name = "%s cover" + path.splitext(str(link))[1]
@@ -96,6 +159,7 @@ class Cover(Thread):
             image_file = open(image_path, "w+")
             image_file.write(urlopen(link).read())
             image_file.close()
+            self.reload_image()
             return True
         except:
             debugger('Failed to save image from %s to %s' %(link, image_path))
@@ -307,6 +371,8 @@ class AmazonCover(object):
                 image = image.getElementsByTagName('URL')[0]
                 image = image.childNodes[0].toxml()
                 return image
+            except IndexError:
+                debugger('amazon.%s - Returned XML contains no images'%region)
             except:
                 debugger('amazon.%s - Unexpected error'%region)
                 continue
@@ -423,6 +489,15 @@ class CoverFetcher(EventPlugin):
         labelid.tag = 'labelid_names'
         labelid.connect('toggled', cb_toggled)
         labelid.set_active(is_enabled(labelid.tag, True))
+        #Look for biggest possible image?
+        biggest = gtk.CheckButton(_('Look for biggest possible image'))
+        tip = _('This will probably find biggest possible art. '
+                'Uses more bandwidth.')
+        tooltip.set_tip(biggest, tip)
+        biggest.tag = 'get_biggest'
+        biggest.connect('toggled', cb_toggled)
+        biggest.set_active(is_enabled(biggest.tag, True))
+        #Add " cover" to image name?
         cover = gtk.CheckButton(_('Add "cover" to filename.'
                                  ' May cause unexpected behavior.'))
         tip = _('Don\'t do this, unless you really want to see cover on every'
@@ -433,6 +508,7 @@ class CoverFetcher(EventPlugin):
         cover.set_active(is_enabled(cover.tag, False))
         settings.pack_start(rld)
         settings.pack_start(labelid)
+        settings.pack_start(biggest)
         settings.pack_start(cover)
         notebook.append_page(settings, label)
 
