@@ -341,10 +341,12 @@ class AmazonCover(object):
             return None
         key = 'AKIAIMIN4TM6PFNAFHLQ'
         sec = 'pq5/QktQyrBqYeH0ikaymv3vV6ngyF8OV+zi+nMk'
+        tag = 'musplaplu-20'
         self.amazons = {}
         regions = ['CA', 'DE', 'FR', 'JP', 'US', 'UK']
         for region in regions:
-            self.amazons[region] = bottlenose.Amazon(key, sec, Region = region)
+            self.amazons[region] = bottlenose.Amazon(key, sec, tag,
+                                                     Region = region)
         self.artist = song.get('artist', '').decode('utf-8')
         self.album = song.get('album', '').decode('utf-8')
 
@@ -371,8 +373,6 @@ class AmazonCover(object):
                 image = image.getElementsByTagName('URL')[0]
                 image = image.childNodes[0].toxml()
                 return image
-            except IndexError:
-                debugger('amazon.%s - Returned XML contains no images'%region)
             except:
                 debugger('amazon.%s - Unexpected error'%region)
                 continue
