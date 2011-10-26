@@ -343,7 +343,7 @@ class AmazonCover(object):
         sec = 'pq5/QktQyrBqYeH0ikaymv3vV6ngyF8OV+zi+nMk'
         tag = 'musplaplu-20'
         self.amazons = {}
-        regions = ['CA', 'DE', 'FR', 'JP', 'US', 'UK']
+        regions = ['CA', 'CN', 'DE', 'FR', 'IT', 'JP', 'UK', 'US']
         for region in regions:
             self.amazons[region] = bottlenose.Amazon(key, sec, tag,
                                                      Region = region)
