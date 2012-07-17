@@ -1,10 +1,7 @@
 # -*- coding: utf-8 -*-
-# Copyright 2011 Simonas Kazlauskas
-# Contact: http://kazlauskas.me/mail
+# Copyright 2012 Simonas Kazlauskas
 
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License version 2 as
-# published by the Free Software Foundation
+# Same licence as Quodlibet (http://code.google.com/p/quodlibet/)
 
 from quodlibet.plugins.events import EventPlugin
 from quodlibet.player import playlist as player
@@ -20,15 +17,17 @@ from urlparse import urljoin
 import struct
 
 
-debug = False
+debug = True
 if debug:
     from sys import exc_info
     from traceback import print_exception
 
+
 def debugger(message):
-    print_w('[AutoAlbumArt] %s' % message)
+    print_d('[AutoAlbumArt] %s' % message)
     if debug:
         print_exception(*exc_info())
+
 
 def fs_strip(s, replace=None):
     """
@@ -36,8 +35,9 @@ def fs_strip(s, replace=None):
     See issue http://code.google.com/p/quodlibet/issues/detail?id=784
     """
     replace = replace or " "
-    illegals = '/?<>\:*|"^' #^ is illegal in FAT, only / is illegal in Unix.
+    illegals = '/?<>\:*|"^'  # ^ is illegal in FAT, only / is illegal in Unix.
     return reduce(lambda q, c: q.replace(c, replace), illegals, s)
+
 
 def is_enabled(tag, default=True):
     """
@@ -47,7 +47,7 @@ def is_enabled(tag, default=True):
     is_enabled('MB') #Checks if MusicBrainz is enabled.
     """
     try:
-        if config.get('plugins', 'cover_'+tag):
+        if config.get('plugins', 'cover_' + tag):
             return True
         else:
             return False
@@ -64,6 +64,7 @@ class Cover(Thread):
                       LastFMCover,
                       AmazonCover,
                       VGMdbCover]
+
     def run(self):
         if self.check_existing_cover():
             return True
@@ -95,16 +96,16 @@ class Cover(Thread):
                 size = len(data)
                 if (size >= 10) and data[:6] in ('GIF87a', 'GIF89a'):
                     w, h = struct.unpack("<HH", data[6:10])
-                    tmp.append((url, int(w)*int(h)))
+                    tmp.append((url, int(w) * int(h)))
                     continue
                 elif ((size >= 24) and data.startswith('\211PNG\r\n\032\n')
                     and (data[12:16] == 'IHDR')):
                     w, h = struct.unpack(">LL", data[16:24])
-                    tmp.append((url, int(w)*int(h)))
+                    tmp.append((url, int(w) * int(h)))
                     continue
                 elif (size >= 16) and data.startswith('\211PNG\r\n\032\n'):
                     w, h = struct.unpack(">LL", data[8:16])
-                    tmp.append((url, int(w)*int(h)))
+                    tmp.append((url, int(w) * int(h)))
                     continue
                 #JPEG suks :D
                 image = urlopen(url)
@@ -113,16 +114,19 @@ class Cover(Thread):
                     b = image.read(1)
                     try:
                         while (b and ord(b) != 0xDA):
-                            while (ord(b) != 0xFF): b = image.read(1)
-                            while (ord(b) == 0xFF): b = image.read(1)
+                            while (ord(b) != 0xFF):
+                                b = image.read(1)
+                            while (ord(b) == 0xFF):
+                                b = image.read(1)
                             if (ord(b) >= 0xC0 and ord(b) <= 0xC3):
                                 image.read(3)
                                 h, w = struct.unpack(">HH", image.read(4))
                                 break
                             else:
-                                image.read(int(struct.unpack(">H", image.read(2))[0])-2)
+                                image.read(int(
+                                    struct.unpack(">H", image.read(2))[0]) - 2)
                             b = image.read(1)
-                        tmp.append((url, int(w)*int(h)))
+                        tmp.append((url, int(w) * int(h)))
                         continue
                     except struct.error:
                         pass
@@ -162,7 +166,7 @@ class Cover(Thread):
             self.reload_image()
             return True
         except:
-            debugger('Failed to save image from %s to %s' %(link, image_path))
+            debugger('Failed to save image from %s to %s' % (link, image_path))
         return False
 
     def check_existing_cover(self):
@@ -217,7 +221,7 @@ class LastFMCover(object):
             #Last.fm produces 400 error if artist/album not found.
             #It's expected error, and should produce no message.
             if not int(e.code) == 400:
-                debugger('Failed to open %s'%self.url)
+                debugger('Failed to open %s' % self.url)
                 return False
         except:
             debugger('LFM - unexpected error')
@@ -232,8 +236,8 @@ class MusicBrainzCover(object):
     MusicBrainzCover(quodlibet.player.playlist.song).run()
     """
     def escape_query(self, query):
-        specials =  ['\\','+','-','&&','||','!','(',')','{','}','[',']',
-                         '^','"','~','*','?',':']
+        specials = ['\\', '+', '-', '&&', '||', '!', '(', ')', '{', '}', '[',
+                    ']', '^', '"', '~', '*', '?', ':']
         return reduce(lambda q, c: q.replace(c, '\\%s' % c), specials, query)
 
     def get_treshold(self):
@@ -263,9 +267,9 @@ class MusicBrainzCover(object):
 
         #Amazon image url pattern.
         self.img = 'http://ec%d.images-amazon.com/images/P/%s.%02d.LZZZZZZ.jpg'
-        self.img = self.img % (randint(1,3), '%s', randint(1, 9))
+        self.img = self.img % (randint(1, 3), '%s', randint(1, 9))
 
-    def passes(self, mbid = False):
+    def passes(self, mbid=False):
         if mbid:
             return hasattr(self, 'mbid_url')
         else:
@@ -274,7 +278,7 @@ class MusicBrainzCover(object):
     def run(self):
         #Run search with MBID, if possible.
         if is_enabled('MB'):
-            if self.passes(mbid = True):
+            if self.passes(mbid=True):
                 try:
                     xml = parseString(urlopen(self.mbid_url).read())
                     if not len(xml.getElementsByTagName('asin')) == 0:
@@ -282,7 +286,7 @@ class MusicBrainzCover(object):
                         asin = asin.childNodes[0].toxml()
                         return self.make_image_url(asin)
                 except URLError:
-                    debugger('Failet to open %s'%self.mbid_url)
+                    debugger('Failet to open %s' % self.mbid_url)
                 except:
                     debugger('MB - unexpected error')
             if self.passes():
@@ -302,7 +306,7 @@ class MusicBrainzCover(object):
                             asin = asin.childNodes[0].toxml()
                             return self.make_image_url(asin)
                 except URLError:
-                    debugger('Failet to open %s'%self.url)
+                    debugger('Failet to open %s' % self.url)
                 except:
                     debugger('MB - unexpected error')
             else:
@@ -320,7 +324,7 @@ class MusicBrainzCover(object):
             else:
                 image.close()
         except:
-            debugger('Failed to open image %s'%url)
+            debugger('Failed to open image %s' % url)
         return url
 
 
@@ -346,7 +350,7 @@ class AmazonCover(object):
         regions = ['CA', 'CN', 'DE', 'FR', 'IT', 'JP', 'UK', 'US']
         for region in regions:
             self.amazons[region] = bottlenose.Amazon(key, sec, tag,
-                                                     Region = region)
+                                                     Region=region)
         self.artist = song.get('artist', '').decode('utf-8')
         self.album = song.get('album', '').decode('utf-8')
 
@@ -361,10 +365,10 @@ class AmazonCover(object):
             return False
         for region, amazon in self.amazons.items():
             try:
-                xml = parseString(amazon.ItemSearch(SearchIndex = 'Music',
-                                                    ResponseGroup = 'Images',
-                                                    Title = self.album,
-                                                    Artist = self.artist))
+                xml = parseString(amazon.ItemSearch(SearchIndex='Music',
+                                                    ResponseGroup='Images',
+                                                    Title=self.album,
+                                                    Artist=self.artist))
                 result_count = xml.getElementsByTagName('TotalResults')[0]
                 result_count = int(result_count.childNodes[0].toxml())
                 if result_count == 0 or result_count > 5:
@@ -374,7 +378,7 @@ class AmazonCover(object):
                 image = image.childNodes[0].toxml()
                 return image
             except:
-                debugger('amazon.%s - Unexpected error'%region)
+                debugger('amazon.%s - Unexpected error' % region)
                 continue
         return False
 
@@ -387,7 +391,7 @@ class VGMdbCover(object):
     VGMdbCover(quodlibet.player.playlist.song).run()
     """
     def __init__(self, song):
-        self.album = song.get('album','').encode('utf-8')
+        self.album = song.get('album', '').encode('utf-8')
         self.artist = song.get('artist', '').encode('utf-8')
         url = 'http://vgmdb.net/search?q=%%22%s%%22%%20%%22%s%%22'
         self.url = url % (quote(self.artist), quote(self.album))
@@ -398,7 +402,7 @@ class VGMdbCover(object):
         else:
             self.label_url = False
 
-    def passes(self, ):
+    def passes(self):
         if not self.album or not self.artist:
             return False
         else:
@@ -419,17 +423,17 @@ class VGMdbCover(object):
         if not is_enabled('VGM') or not self.passes():
             return False
         try:
-            if self.label_url: #Search by label
+            if self.label_url:  # Search by label
                 site = urlopen(self.label_url)
                 if 'http://vgmdb.net/album/' in site.url:
                     xml = BeautifulSoup(site.read())
-                    image = xml.find('img', {'id':'coverart'})['src']
+                    image = xml.find('img', {'id': 'coverart'})['src']
                     return self.parse_url(image)
-            else: #Search by artist - album.
+            else:  # Search by artist - album.
                 site = urlopen(self.url)
                 if 'http://vgmdb.net/album/' in site.url:
                     xml = BeautifulSoup(site.read())
-                    image = xml.find('img', {'id':'coverart'})['src']
+                    image = xml.find('img', {'id': 'coverart'})['src']
                     return self.parse_url(image)
         except URLError:
             debugger('Failed to open %s' % self.url)
@@ -445,16 +449,15 @@ class CoverFetcher(EventPlugin):
                     " playing album.")
     PLUGIN_VERSION = "0.9"
 
-
     def PluginPreferences(self, parent):
         import gtk
 
         #Inner functions, mostly callbacks.
         def cb_toggled(cb):
             if cb.get_active():
-                config.set('plugins', 'cover_'+cb.tag, 'True')
+                config.set('plugins', 'cover_' + cb.tag, 'True')
             else:
-                config.set('plugins', 'cover_'+cb.tag, '')
+                config.set('plugins', 'cover_' + cb.tag, '')
 
         def get_treshold():
             try:
@@ -470,11 +473,11 @@ class CoverFetcher(EventPlugin):
         tooltip = gtk.Tooltips()
         notebook = gtk.Notebook()
         warnings = []
-        vb = gtk.VBox(spacing = 5)
+        vb = gtk.VBox(spacing=5)
 
         #General settings tab
         label = gtk.Label(_('General'))
-        settings = gtk.VBox(spacing = 5)
+        settings = gtk.VBox(spacing=5)
         rld = gtk.CheckButton(_('Redownload image, even if it already exists'))
         tip = _('Helps to keep cover up to date')
         tooltip.set_tip(rld, tip)
@@ -514,7 +517,7 @@ class CoverFetcher(EventPlugin):
 
         #MusicBrainz settings tab
         label = gtk.Label(_('MusicBrainz'))
-        settings = gtk.VBox(spacing = 5)
+        settings = gtk.VBox(spacing=5)
 
         enabled = gtk.CheckButton('Enabled')
         enabled.tag = 'MB'
@@ -522,7 +525,7 @@ class CoverFetcher(EventPlugin):
         enabled.set_active(is_enabled(enabled.tag))
         settings.pack_start(enabled)
 
-        treshold = gtk.HBox(spacing = 10)
+        treshold = gtk.HBox(spacing=10)
         tip = _('How much search results should be tolerated?'
                 '\nBigger value = More accurate.')
         tooltip.set_tip(treshold, tip)
@@ -538,7 +541,7 @@ class CoverFetcher(EventPlugin):
 
         #Last.fm settings tab
         label = gtk.Label(_('Last.fm'))
-        settings = gtk.VBox(spacing = 5)
+        settings = gtk.VBox(spacing=5)
 
         enabled = gtk.CheckButton('Enabled')
         enabled.tag = 'LFM'
@@ -557,7 +560,7 @@ class CoverFetcher(EventPlugin):
             warnings.append(gtk.Label(_('Amazon: Amazon cover search '
                                         'requires Python bottlenose package!')))
 
-        settings = gtk.VBox(spacing = 5)
+        settings = gtk.VBox(spacing=5)
 
         enabled = gtk.CheckButton('Enabled')
         enabled.tag = 'A'
@@ -575,7 +578,7 @@ class CoverFetcher(EventPlugin):
             label.set_markup('<b><span foreground="red">%s</span></b>' % _('VGMdb'))
             warnings.append(gtk.Label(_('VGMdb: VGMdb cover search requires'
                                         ' Python BeautifulSoup package!')))
-        settings = gtk.VBox(spacing = 5)
+        settings = gtk.VBox(spacing=5)
 
         enabled = gtk.CheckButton('Enabled')
         enabled.tag = 'VGM'
