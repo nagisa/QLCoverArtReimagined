@@ -25,26 +25,26 @@ Notes:
 
 #### Dependencies:
 
-* [bottlenose](https://github.com/dlo/bottlenose) - `easy_install bottlenose` or `pip install bottlenose`
-* [BeautifulSoup](http://www.crummy.com/software/BeautifulSoup/) - `easy_install BeautifulSoup` or `pip install BeautifulSoup`
+    * [bottlenose](https://github.com/dlo/bottlenose) - `easy_install bottlenose` or `pip install bottlenose`
+    * [BeautifulSoup](http://www.crummy.com/software/BeautifulSoup/) - `easy_install BeautifulSoup` or `pip install BeautifulSoup`
 
 ### Step 2:
 
 #### Linux:
 
-Put cover.py inside `/usr/lib/python2.x/site-packages/quodlibet/plugins/events/`
+    Put cover.py inside `/usr/lib/python2.x/site-packages/quodlibet/plugins/events/`
 
-`sudo cp ./cover.py /usr/lib/python2.7/site-packages/quodlibet/plugins/events/cover.py`
+    `sudo cp ./cover.py /usr/lib/python2.7/site-packages/quodlibet/plugins/events/cover.py`
 
 #### Windows:
 
-Put cover.py into `C:\Python2.x\Lib\site-packages\quodlibet\plugins\events\`
+    Put cover.py into `C:\Python2.x\Lib\site-packages\quodlibet\plugins\events\`
 
 ### Step 3:
 
-* Relaunch Quodlibet
-* Enable `Automatic Album Art` in `Music`>`Plugins`
+    * Relaunch Quodlibet
+    * Enable `Automatic Album Art` in `Music`>`Plugins`
 
-## One more notice
+## Check your quodlibet version!
 
-Due to quodlibet restrictions cover will appear only when you play album second time.
+    If you are using Quodlibet 2.3 or below, you should use files tagged with ql2.3
