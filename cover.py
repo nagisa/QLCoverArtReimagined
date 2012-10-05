@@ -5,8 +5,7 @@
 
 from quodlibet.plugins.events import EventPlugin
 from quodlibet.player import playlist as player
-from quodlibet.widgets import main
-from quodlibet import config
+from quodlibet import config, app
 from os import path
 from urllib2 import urlopen, URLError
 from urllib import quote
@@ -84,7 +83,7 @@ class Cover(Thread):
         # Thanks to http://code.google.com/p/quodlibet/issues/detail?id=780#c22
         # Don't show image, if quodlibet's already playing another song.
         if player.song['~filename'] == self.song['~filename']:
-            main.image.set_song(None, self.song)
+            app.window.image.set_song(None, self.song)
 
     def biggest_image(self, images):
         tmp = []
