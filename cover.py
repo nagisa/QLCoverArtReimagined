@@ -13,6 +13,7 @@ from xml.dom.minidom import parseString
 from threading import Thread
 from random import randint
 from urlparse import urljoin
+import json
 import struct
 
 
@@ -229,102 +230,32 @@ class LastFMCover(object):
 
 class MusicBrainzCover(object):
     """
-    Searches for art at MusicBrainz. Images are downloaded from Amazon.
+    Searches for art at MusicBrainz. Images are downloaded from
+    coverartarchive.org.
 
     Usage:
     MusicBrainzCover(quodlibet.player.playlist.song).run()
     """
-    def escape_query(self, query):
-        specials = ['\\', '+', '-', '&&', '||', '!', '(', ')', '{', '}', '[',
-                    ']', '^', '"', '~', '*', '?', ':']
-        return reduce(lambda q, c: q.replace(c, '\\%s' % c), specials, query)
-
-    def get_treshold(self):
-        try:
-            return int(config.get('plugins', 'cover_treshold'))
-        except:
-            debugger('Could not get treshold. Using 70.')
-            return 70
-
     def __init__(self, song):
-        self.album = song.get('album', '').encode('utf-8')
-        artist = song.get('artist', '').encode('utf-8')
-        self.treshold = self.get_treshold()
-
-        #MBID url
-        if song.get('musicbrainz_albumid', False):
-            mbid = song['musicbrainz_albumid']
-            self.mbid_url = 'http://musicbrainz.org/ws/2/release/%s' % mbid
-
-        #Artist - Album url
-        url = 'http://musicbrainz.org/ws/2/release?limit=4&query=%s'
-        query = quote(self.escape_query(self.album))
-        if artist:
-            #If we have artist, we can make more accurate search
-            query += quote(' AND artist:%s' % self.escape_query(artist))
-        self.url = url % query
-
-        #Amazon image url pattern.
-        self.img = 'http://ec%d.images-amazon.com/images/P/%s.%02d.LZZZZZZ.jpg'
-        self.img = self.img % (randint(1, 3), '%s', randint(1, 9))
-
-    def passes(self, mbid=False):
-        if mbid:
-            return hasattr(self, 'mbid_url')
-        else:
-            return bool(self.url) and bool(self.album)
+        self.mbid = song.get('musicbrainz_albumid', None)
 
     def run(self):
         #Run search with MBID, if possible.
         if is_enabled('MB'):
-            if self.passes(mbid=True):
+            if self.mbid:
+                # We have a mbid and we should use it to fetch cover art from
+                # coverartarchive.org
+                url = 'http://coverartarchive.org/release/%s/%s'
                 try:
-                    xml = parseString(urlopen(self.mbid_url).read())
-                    if not len(xml.getElementsByTagName('asin')) == 0:
-                        asin = xml.getElementsByTagName('asin')[0]
-                        asin = asin.childNodes[0].toxml()
-                        return self.make_image_url(asin)
+                    handle = urlopen(url % (self.mbid, ''))
                 except URLError:
-                    debugger('Failet to open %s' % self.mbid_url)
-                except:
-                    debugger('MB - unexpected error')
-            if self.passes():
-                try:
-                    xml = parseString(urlopen(self.url).read())
-                    release_list = xml.getElementsByTagName('release-list')[0]
-                    if int(release_list.getAttribute('count')) == 0:
-                        return False
-                    albums = release_list.getElementsByTagName('release')
-                    for album in albums:
-                        if int(album.getAttribute('ext:score')) < self.treshold:
-                            break
-                        if len(album.getElementsByTagName('asin')) == 0:
-                            continue
-                        else:
-                            asin = album.getElementsByTagName('asin')[0]
-                            asin = asin.childNodes[0].toxml()
-                            return self.make_image_url(asin)
-                except URLError:
-                    debugger('Failet to open %s' % self.url)
-                except:
-                    debugger('MB - unexpected error')
+                    debugger('Failed to open %s' % url)
+                    return False
+                imgs = json.load(handle)['images']
+                return imgs[0]['image']
             else:
                 return False
         return False
-
-    def make_image_url(self, asin):
-        url = self.img % asin
-        #We need to check, if image is not 1x1 empty gif.
-        try:
-            image = urlopen(url)
-            #500 bytes treshold is pretty reasonable for this check.
-            if image.headers['content-length'] < 500:
-                return False
-            else:
-                image.close()
-        except:
-            debugger('Failed to open image %s' % url)
-        return url
 
 
 class AmazonCover(object):
