@@ -16,16 +16,11 @@ from urlparse import urljoin
 import json
 import struct
 
-
-debug = True
-if debug:
-    from sys import exc_info
-    from traceback import print_exception
-
-
 def debugger(message):
     print_d('[AutoAlbumArt] %s' % message)
-    if debug:
+    if True:
+        from sys import exc_info
+        from traceback import print_exception
         print_exception(*exc_info())
 
 
