@@ -3,16 +3,17 @@
 
 # Same licence as Quodlibet (http://code.google.com/p/quodlibet/)
 
-from quodlibet.plugins.events import EventPlugin
-from quodlibet.player import playlist as player
-from quodlibet import config, app
 from os import path
-from urllib2 import urlopen, URLError
-from urllib import quote
-from xml.dom.minidom import parseString
-from threading import Thread
+from quodlibet import config, app
+from quodlibet.player import playlist as player
+from quodlibet.plugins.events import EventPlugin
+from quodlibet.util.dprint import print_d
 from random import randint
+from threading import Thread
+from urllib2 import urlopen, URLError, HTTPError
+from urllib import quote
 from urlparse import urljoin
+from xml.dom.minidom import parseString
 import json
 import struct
 
@@ -20,8 +21,8 @@ def debugger(message):
     print_d('[AutoAlbumArt] %s' % message)
     if True:
         from sys import exc_info
-        from traceback import print_exception
-        print_exception(*exc_info())
+        from traceback import format_exception
+        print_d(''.join(format_exception(*exc_info())))
 
 
 def fs_strip(s, replace=None):
