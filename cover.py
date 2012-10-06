@@ -18,7 +18,7 @@ import json
 import struct
 
 def debugger(message):
-    print_d('[AutoAlbumArt] %s' % message)
+    print_d(message)
     if True:
         from sys import exc_info
         from traceback import format_exception
