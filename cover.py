@@ -1,6 +1,5 @@
 from os import path
 from gi.repository import Gio, GLib, Gtk, Soup
-import functools
 import json
 
 from quodlibet.plugins.events import EventPlugin
@@ -107,7 +106,6 @@ class MusicBrainzCoverProvider(CoverProvider, SoupDownloaderMixin):
             print_d('Tried downloading this not too long ago, stopping')
             return self.callback(False)
         msg = Soup.Message.new('GET', self.url)
-        print('queue_message')
         session.queue_message(msg, self.cover_fetched, {})
 
 
