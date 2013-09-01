@@ -1,533 +1,157 @@
-# -*- coding: utf-8 -*-
-# Copyright 2012 Simonas Kazlauskas
-
-# Same licence as Quodlibet (http://code.google.com/p/quodlibet/)
-
 from os import path
-from quodlibet import config, app
-from quodlibet.player import playlist as player
+from gi.repository import Gio, GLib, Gtk, Soup
+import functools
+
 from quodlibet.plugins.events import EventPlugin
-from quodlibet.util.dprint import print_d
-from random import randint
-from threading import Thread
-from urllib2 import urlopen, URLError, HTTPError
-from urllib import quote
-from urlparse import urljoin
-from xml.dom.minidom import parseString
-import json
-import struct
+from quodlibet import app
+from quodlibet.formats._audio import AudioFile
 
-def debugger(message):
-    print_d(message)
-    if True:
-        from sys import exc_info
-        from traceback import format_exception
-        print_d(''.join(format_exception(*exc_info())))
+session = Soup.Session.new()
+session.set_properties(user_agent="QL Automatic Cover Fetcher Plugin")
+cover_dir = path.join(GLib.get_user_cache_dir(), 'quodlibet', 'covers')
+old_find_cover = None
 
 
-def fs_strip(s, replace=None):
+class CoverProvider(object):
+    """ Abstracts all cover providers that store path to their fetched cover
+    in ~#cover-path
     """
-    Strips illegal filesystem characters from album.
-    See issue http://code.google.com/p/quodlibet/issues/detail?id=784
-    """
-    replace = replace or " "
-    illegals = '/?<>\:*|"^'  # ^ is illegal in FAT, only / is illegal in Unix.
-    return reduce(lambda q, c: q.replace(c, replace), illegals, s)
-
-
-def is_enabled(tag, default=True):
-    """
-    Checks if plugin is enabled, give it's tag as argument.
-
-    Usage:
-    is_enabled('MB') #Checks if MusicBrainz is enabled.
-    """
-    try:
-        if config.get('plugins', 'cover_' + tag):
-            return True
-        else:
-            return False
-    except:
-        return default
-
-
-class Cover(Thread):
-    def __init__(self, song):
-        Thread.__init__(self)
+    def __init__(self, song, cancellable=None, callback=lambda x: x,
+                 data=None):
         self.song = song
-        #Add new engines here!
-        self.order = [MusicBrainzCover,
-                      LastFMCover,
-                      AmazonCover,
-                      VGMdbCover]
+        self.cancellable = cancellable
+        self.callback = callback
+        self.data = data or {}
 
-    def run(self):
-        if self.check_existing_cover():
-            return True
-        images = []
-        for fetcher in self.order:
-            image = fetcher(self.song).run()
-            if is_enabled('get_biggest') and image:
-                images.append(image)
-            elif not is_enabled('get_biggest') and image and self.save(image):
-                return True
-        if images:
-            return self.save(images)
-        return False
+    @property
+    def cover_path(self):
+        return self.song.get('~#cover-path', None)
 
-    def reload_image(self):
-        # Show image instantly!
-        # Thanks to http://code.google.com/p/quodlibet/issues/detail?id=780#c22
-        # Don't show image, if quodlibet's already playing another song.
-        if player.song['~filename'] == self.song['~filename']:
-            app.window.image.set_song(None, self.song)
+    @cover_path.setter
+    def cover_path(self, val):
+        self.song['~#cover-path'] = val
 
-    def biggest_image(self, images):
-        tmp = []
-        for url in images:
-            try:
-                h = -1
-                w = -1
-                data = urlopen(url).read(24)
-                size = len(data)
-                if (size >= 10) and data[:6] in ('GIF87a', 'GIF89a'):
-                    w, h = struct.unpack("<HH", data[6:10])
-                    tmp.append((url, int(w) * int(h)))
-                    continue
-                elif ((size >= 24) and data.startswith('\211PNG\r\n\032\n')
-                    and (data[12:16] == 'IHDR')):
-                    w, h = struct.unpack(">LL", data[16:24])
-                    tmp.append((url, int(w) * int(h)))
-                    continue
-                elif (size >= 16) and data.startswith('\211PNG\r\n\032\n'):
-                    w, h = struct.unpack(">LL", data[8:16])
-                    tmp.append((url, int(w) * int(h)))
-                    continue
-                #JPEG suks :D
-                image = urlopen(url)
-                data = str(image.read(2))
-                if data.startswith('\377\330'):
-                    b = image.read(1)
-                    try:
-                        while (b and ord(b) != 0xDA):
-                            while (ord(b) != 0xFF):
-                                b = image.read(1)
-                            while (ord(b) == 0xFF):
-                                b = image.read(1)
-                            if (ord(b) >= 0xC0 and ord(b) <= 0xC3):
-                                image.read(3)
-                                h, w = struct.unpack(">HH", image.read(4))
-                                break
-                            else:
-                                image.read(int(
-                                    struct.unpack(">H", image.read(2))[0]) - 2)
-                            b = image.read(1)
-                        tmp.append((url, int(w) * int(h)))
-                        continue
-                    except struct.error:
-                        pass
-                    except ValueError:
-                        pass
-            except URLError:
-                debugger("Failed to open image at %s" % url)
-            except:
-                debugger("Failed to get image size of %s" % url)
-                tmp.append((url, 0))
-                continue
-        return max(tmp, key=lambda x: x[1])
+    def find_cover(self):
+        if self.cover_path and path.isfile(self.cover_path):
+            return open(self.cover_path, 'rb')
 
-    def save(self, images):
-        directory = path.dirname(self.song['~filename'])
-        try:
-            link = "" + images
-        except TypeError:
-            link = self.biggest_image(images)[0]
-        #May have album name, labelid, and so on as name...
-        if is_enabled('cover_names', False):
-            image_name = "%s cover" + path.splitext(str(link))[1]
+    def fetch_cover(self):
+        self.callback(None)
+
+
+class MusicBrainzCoverProvider(CoverProvider):
+    url = 'http://coverartarchive.org/release/{mbid}/front'
+
+    @property
+    def mbid(self):
+        return self.song.get('musicbrainz_albumid', None)
+
+    @property
+    def mb_cover_path(self):
+        return path.join(cover_dir, self.mbid)
+
+    def find_cover(self):
+        cover = super(MusicBrainzCoverProvider, self).find_cover()
+        if cover:
+            return cover
+        elif path.isfile(self.mb_cover_path):
+            print_d('Found already existing cover art, stopping')
+            self.cover_path = self.mb_cover_path
+            return open(self.mb_cover_path, 'rb')
         else:
-            image_name = "%s" + path.splitext(str(link))[1]
-        if is_enabled('labelid_names') and self.song.get('labelid', False):
-            image_name = image_name % self.song['labelid']
-        elif self.song.get('album', False):
-            image_name = image_name % fs_strip(self.song['album'])
-        else:
-            #Could not construct name for image
-            return False
-        image_path = path.join(directory, image_name)
-        try:
-            image_file = open(image_path, "w+")
-            image_file.write(urlopen(link).read())
-            image_file.close()
-            self.reload_image()
-            return True
-        except:
-            debugger('Failed to save image from %s to %s' % (link, image_path))
-        return False
-
-    def check_existing_cover(self):
-        """
-        Checks if cover art already exists.
-        Uses quodlibet cover matching algorithm.
-        """
-        if is_enabled('reload'):
-            return False
-        if not self.song.find_cover() == None:
-            return True
-        return False
-
-
-class LastFMCover(object):
-    """
-    Searches and downloads cover art from LastFM.
-
-    Usage:
-    LastFMCover(quodlibet.player.playlist.song).run()
-    """
-    def __init__(self, song):
-        api = 'http://ws.audioscrobbler.com/2.0/'
-        apikey = '2dd4db6614e0f314b4401a92dce5e04a'
-        self.album = song.get('album', '').encode('utf-8')
-        self.artist = song.get('artist', '').encode('utf-8')
-        url = "%s?method=album.getinfo&api_key=%s&artist=%s&album=%s"
-        self.url = url % (api, apikey, quote(self.artist), quote(self.album))
-
-    def passes(self):
-        if not self.album or not self.artist:
-            return False
-        else:
-            return True
-
-    def run(self):
-        if not self.passes() or not is_enabled('LFM'):
-            return False
-        try:
-            content = parseString(urlopen(self.url).read())
-            parent = content.getElementsByTagName('lfm')[0]
-            if parent.getAttribute('status') == "failed":
-                return False
-            album = parent.getElementsByTagName('album')[0]
-            images = album.getElementsByTagName('image')
-            for image in reversed(images):
-                if len(image.childNodes) == 0:
-                    continue
-                image_url = image.childNodes[0].toxml()
-                return image_url
-        except URLError, e:
-            #Last.fm produces 400 error if artist/album not found.
-            #It's expected error, and should produce no message.
-            if not int(e.code) == 400:
-                debugger('Failed to open %s' % self.url)
-                return False
-        except:
-            debugger('LFM - unexpected error')
-            return False
-
-
-class MusicBrainzCover(object):
-    """
-    Searches for art at MusicBrainz. Images are downloaded from
-    coverartarchive.org.
-
-    Usage:
-    MusicBrainzCover(quodlibet.player.playlist.song).run()
-    """
-    def __init__(self, song):
-        self.mbid = song.get('musicbrainz_albumid', None)
-
-    def run(self):
-        #Run search with MBID, if possible.
-        if is_enabled('MB'):
-            if self.mbid:
-                # We have a mbid and we should use it to fetch cover art from
-                # coverartarchive.org
-                url = 'http://coverartarchive.org/release/%s/%s'
-                try:
-                    handle = urlopen(url % (self.mbid, ''))
-                except URLError:
-                    debugger('Failed to open %s' % url)
-                    return False
-                imgs = json.load(handle)['images']
-                return imgs[0]['image']
-            else:
-                return False
-        return False
-
-
-class AmazonCover(object):
-    """
-    Searches and downloads cover art from Amazon.
-
-    Usage:
-    AmazonCover(quodlibet.player.playlist.song).run()
-    """
-    def __init__(self, song):
-        try:
-            import bottlenose
-            self.bottlenose = True
-        except:
-            debugger('No bottlenose package!')
-            self.bottlenose = False
             return None
-        key = 'AKIAIMIN4TM6PFNAFHLQ'
-        sec = 'pq5/QktQyrBqYeH0ikaymv3vV6ngyF8OV+zi+nMk'
-        tag = 'musplaplu-20'
-        self.amazons = {}
-        regions = ['CA', 'CN', 'DE', 'FR', 'IT', 'JP', 'UK', 'US']
-        for region in regions:
-            self.amazons[region] = bottlenose.Amazon(key, sec, tag,
-                                                     Region=region)
-        self.artist = song.get('artist', '').decode('utf-8')
-        self.album = song.get('album', '').decode('utf-8')
 
-    def passes(self):
-        if not self.bottlenose or not self.album or not self.artist:
-            return False
+    def fetch_cover(self):
+        if not self.mbid:
+            print_d("Album MBID is required to fetch the cover, stopping")
+            return self.callback(None)
+
+        hour = 3600000000
+        if GLib.get_real_time() - self.data.get(self.mbid, 0) < hour:
+            print_d('Tried downloading this not too long ago, stopping')
+            return self.callback(None)
+
+        msg = Soup.Message.new('GET', self.url.format(mbid=self.mbid))
+        session.queue_message(msg, self.cover_fetched, {})
+
+    def cover_fetched(self, session, message, data):
+        if self.cancellable.is_cancelled():
+            print_d('Plugin was disabled while the cover was being downloaded')
+            return self.callback(None)
+
+        if message.get_property('status-code') == 200:
+            data['body'] = message.get_property('response-body')
+            data['file'] = Gio.file_new_for_path(self.mb_cover_path)
+            data['file'].replace_async(None, False, Gio.FileCreateFlags.NONE,
+                                       GLib.PRIORITY_DEFAULT, self.cancellable,
+                                       self.cover_file_opened, data)
+            print_d('Downloaded cover art from CoverArtArchive')
         else:
-            return True
-
-    def run(self):
-        if not self.passes() or not is_enabled('A'):
-            return False
-        for region, amazon in self.amazons.items():
-            try:
-                xml = parseString(amazon.ItemSearch(SearchIndex='Music',
-                                                    ResponseGroup='Images',
-                                                    Title=self.album,
-                                                    Artist=self.artist))
-                result_count = xml.getElementsByTagName('TotalResults')[0]
-                result_count = int(result_count.childNodes[0].toxml())
-                if result_count == 0 or result_count > 5:
-                    continue
-                image = xml.getElementsByTagName('LargeImage')[0]
-                image = image.getElementsByTagName('URL')[0]
-                image = image.childNodes[0].toxml()
-                return image
-            except:
-                debugger('amazon.%s - Unexpected error' % region)
-                continue
-        return False
+            self.data[self.mbid] = GLib.get_real_time()
+            print_w('Could not get the cover from CoverArtArchive')
 
 
-class VGMdbCover(object):
-    """
-    Searches and downloads cover art from VGMdb.
+    def cover_file_opened(self, cover_file, result, data):
+        out_stream = cover_file.replace_finish(result)
+        out_stream.write_bytes_async(data['body'].flatten().get_as_bytes(),
+                                     GLib.PRIORITY_DEFAULT, self.cancellable,
+                                     self.cover_written, data)
 
-    Usage:
-    VGMdbCover(quodlibet.player.playlist.song).run()
-    """
-    def __init__(self, song):
-        self.album = song.get('album', '').encode('utf-8')
-        self.artist = song.get('artist', '').encode('utf-8')
-        url = 'http://vgmdb.net/search?q=%%22%s%%22%%20%%22%s%%22'
-        self.url = url % (quote(self.artist), quote(self.album))
-
-        if song.get('labelid', False):
-            label = quote(song['labelid'])
-            self.label_url = 'http://vgmdb.net/search?q=%s' % label
-        else:
-            self.label_url = False
-
-    def passes(self):
-        if not self.album or not self.artist:
-            return False
-        else:
-            return True
-
-    def parse_url(self, url):
-        replaceables = ['/assets/covers-medium/', '/assets/covers-thumb/']
-        replacement = '/assets/covers/'
-        url = reduce(lambda q, c: q.replace(c, replacement), replaceables, url)
-        return urljoin('http://vgmdb.net/', url)
-
-    def run(self):
-        try:
-            from BeautifulSoup import BeautifulSoup
-        except ImportError:
-            debugger('No BeautifulSoup package!')
-            return False
-        if not is_enabled('VGM') or not self.passes():
-            return False
-        try:
-            if self.label_url:  # Search by label
-                site = urlopen(self.label_url)
-                if 'http://vgmdb.net/album/' in site.url:
-                    xml = BeautifulSoup(site.read())
-                    image = xml.find('img', {'id': 'coverart'})['src']
-                    return self.parse_url(image)
-            else:  # Search by artist - album.
-                site = urlopen(self.url)
-                if 'http://vgmdb.net/album/' in site.url:
-                    xml = BeautifulSoup(site.read())
-                    image = xml.find('img', {'id': 'coverart'})['src']
-                    return self.parse_url(image)
-        except URLError:
-            debugger('Failed to open %s' % self.url)
-        except:
-            debugger('VGMdb - Unexpected error')
-        return False
+    def cover_written(self, stream, result, data):
+        stream.write_bytes_finish(result)
+        stream.close(None)  # Operation is cheap enough to not care about async
+        self.cover_path = data['file'].get_path()
+        self.callback(data['file'].get_path())
 
 
-class CoverFetcher(EventPlugin):
-    PLUGIN_ID = "CoverFetcher"
-    PLUGIN_NAME = _("Automatic Album Art")
-    PLUGIN_DESC = _("Automatically downloads and saves album art for currently"
-                    " playing album.")
-    PLUGIN_VERSION = "0.9"
+class AutomaticCoverFetcher(EventPlugin):
+    PLUGIN_ID = "auto-cover-fetch"
+    PLUGIN_NAME = _("Automatic Cover Art Fetcher")
+    PLUGIN_DESC = _("Automatically fetch cover art")
+    PLUGIN_ICON = Gtk.STOCK_FIND
+    PLUGIN_VERSION = "1.0"
 
-    def PluginPreferences(self, parent):
-        import gtk
+    cancellable = Gio.Cancellable.new()
+    data = {}
+    cover_providers = (MusicBrainzCoverProvider, CoverProvider)
+    current_song = None
 
-        #Inner functions, mostly callbacks.
-        def cb_toggled(cb):
-            if cb.get_active():
-                config.set('plugins', 'cover_' + cb.tag, 'True')
-            else:
-                config.set('plugins', 'cover_' + cb.tag, '')
+    def enabled(self):
+        global old_find_cover
+        print_w('Patching all songs to use our find_cover method')
+        if not old_find_cover:
+            old_find_cover = AudioFile.find_cover
+        AudioFile.find_cover = lambda *x: self.find_cover(*x)
 
-        def get_treshold():
-            try:
-                return int(config.get('plugins', 'cover_treshold'))
-            except:
-                return 70
+        self.cancellable.reset()
 
-        def set_treshold(spin):
-            value = str(spin.get_value_as_int())
-            config.set('plugins', 'cover_treshold', value)
+    def disabled(self):
+        global old_find_cover
+        print_w('Unpatching all songs to use original find_cover method')
+        AudioFile.find_cover = old_find_cover
+        old_find_cover = None
 
-        #Another things to be used though whole function
-        tooltip = gtk.Tooltips()
-        notebook = gtk.Notebook()
-        warnings = []
-        vb = gtk.VBox(spacing=5)
+        self.cancellable.cancel()
 
-        #General settings tab
-        label = gtk.Label(_('General'))
-        settings = gtk.VBox(spacing=5)
-        rld = gtk.CheckButton(_('Redownload image, even if it already exists'))
-        tip = _('Helps to keep cover up to date')
-        tooltip.set_tip(rld, tip)
-        rld.tag = 'reload'
-        rld.connect('toggled', cb_toggled)
-        rld.set_active(is_enabled(rld.tag, False))
-        #Use programmatic tags for image names?
-        labelid = gtk.CheckButton(_('Use Record Label ID for image names'))
-        tip = _('Your image name will look like "PCS-7088.jpg". '
-                'Will fallback to another options if there\'s no labelid set.')
-        tooltip.set_tip(labelid, tip)
-        labelid.tag = 'labelid_names'
-        labelid.connect('toggled', cb_toggled)
-        labelid.set_active(is_enabled(labelid.tag, True))
-        #Look for biggest possible image?
-        biggest = gtk.CheckButton(_('Look for biggest possible image'))
-        tip = _('This will probably find biggest possible art. '
-                'Uses more bandwidth.')
-        tooltip.set_tip(biggest, tip)
-        biggest.tag = 'get_biggest'
-        biggest.connect('toggled', cb_toggled)
-        biggest.set_active(is_enabled(biggest.tag, True))
-        #Add " cover" to image name?
-        cover = gtk.CheckButton(_('Add "cover" to filename.'
-                                 ' May cause unexpected behavior.'))
-        tip = _('Don\'t do this, unless you really want to see cover on every'
-                ' song.')
-        tooltip.set_tip(cover, tip)
-        cover.tag = 'cover_names'
-        cover.connect('toggled', cb_toggled)
-        cover.set_active(is_enabled(cover.tag, False))
-        settings.pack_start(rld)
-        settings.pack_start(labelid)
-        settings.pack_start(biggest)
-        settings.pack_start(cover)
-        notebook.append_page(settings, label)
-
-        #MusicBrainz settings tab
-        label = gtk.Label(_('MusicBrainz'))
-        settings = gtk.VBox(spacing=5)
-
-        enabled = gtk.CheckButton('Enabled')
-        enabled.tag = 'MB'
-        enabled.connect('toggled', cb_toggled)
-        enabled.set_active(is_enabled(enabled.tag))
-        settings.pack_start(enabled)
-
-        treshold = gtk.HBox(spacing=10)
-        tip = _('How much search results should be tolerated?'
-                '\nBigger value = More accurate.')
-        tooltip.set_tip(treshold, tip)
-        treshold_label = gtk.Label('Treshold')
-        adjust = gtk.Adjustment(get_treshold(), 40, 100, 5)
-        treshold_entry = gtk.SpinButton(adjust)
-        treshold_entry.connect('value-changed', set_treshold)
-        treshold.pack_start(treshold_label, False)
-        treshold.pack_start(treshold_entry, False)
-        settings.pack_start(treshold)
-
-        notebook.append_page(settings, label)
-
-        #Last.fm settings tab
-        label = gtk.Label(_('Last.fm'))
-        settings = gtk.VBox(spacing=5)
-
-        enabled = gtk.CheckButton('Enabled')
-        enabled.tag = 'LFM'
-        enabled.connect('toggled', cb_toggled)
-        enabled.set_active(is_enabled(enabled.tag))
-        settings.pack_start(enabled)
-
-        notebook.append_page(settings, label)
-
-        #Amazon settings tab
-        label = gtk.Label(_('Amazon'))
-        try:
-            import bottlenose
-        except ImportError:
-            label.set_markup('<b><span foreground="red">%s</span></b>' % _('Amazon'))
-            warnings.append(gtk.Label(_('Amazon: Amazon cover search '
-                                        'requires Python bottlenose package!')))
-
-        settings = gtk.VBox(spacing=5)
-
-        enabled = gtk.CheckButton('Enabled')
-        enabled.tag = 'A'
-        enabled.connect('toggled', cb_toggled)
-        enabled.set_active(is_enabled(enabled.tag))
-        settings.pack_start(enabled)
-
-        notebook.append_page(settings, label)
-
-        #VGMdb settings tab
-        label = gtk.Label(_('VGMdb'))
-        try:
-            import BeautifulSoup
-        except ImportError:
-            label.set_markup('<b><span foreground="red">%s</span></b>' % _('VGMdb'))
-            warnings.append(gtk.Label(_('VGMdb: VGMdb cover search requires'
-                                        ' Python BeautifulSoup package!')))
-        settings = gtk.VBox(spacing=5)
-
-        enabled = gtk.CheckButton('Enabled')
-        enabled.tag = 'VGM'
-        enabled.connect('toggled', cb_toggled)
-        enabled.set_active(is_enabled(enabled.tag))
-        settings.pack_start(enabled)
-
-        notebook.append_page(settings, label)
-
-        vb.pack_start(notebook, True, True)
-
-        #Warnings from fetchers
-        for warning in warnings:
-            text = warning.get_text()
-            warning.set_markup('<span foreground="red">%s</span>' % text)
-            vb.pack_start(warning, True, True)
-
-        return vb
+    def find_cover(self, song):
+        for cover_provider in self.cover_providers:
+            cover = cover_provider(song).find_cover()
+            if cover:
+                return cover
+        return old_find_cover(song)
 
     def plugin_on_song_started(self, song):
-        #Sometimes song is None, then Thread initiated without real reason
-        #and just produces error.
-        if not song == None:
-            Cover(song).start()
-        else:
-            return
+        self.current_song = song
+
+        if song.find_cover():
+            return  # We've got nothing to do
+
+        def run(to_try, result):
+            if result and song is self.current_song:
+                app.window.top_bar.image.set_song(song)
+            elif to_try:
+                callback = lambda x: run(to_try, x)
+                to_try.pop(0)(song, self.cancellable, callback,
+                              self.data).fetch_cover()
+
+        run(list(self.cover_providers), None)
