@@ -1,57 +1,31 @@
-<h1><a href="http://code.google.com/p/quodlibet/">Quodlibet</a> Automatic Album Art Downloader</h1>
+## [Quodlibet](http://code.google.com/p/quodlibet/) Automatic Cover Art Fetcher
 
-<h2>Statistics</h2>
+### Compatibility
 
-<ul>
-<li>Total: 383 albums</li>
-<li>More than 500x500: 15 images</li>
-<li>Around 500x500: 331 image</li>
-<li>Around 250x250: 20 images</li>
-<li>Less than 250x250: 6 images</li>
-<li>Incorrect images: 1 image</li>
-<li>Not found: 10 images</li>
-</ul>
+Current master branch is only tested to work with 3.0 version of quodlibet.
 
-<p>So fetcher has about 97% accuracy and everything&#39;s automatic!</p>
+### Accuracy
 
-<p>Notes:</p>
+Usually this plugin is accurate 99% of time (I never measured, but the previous
+version had 97% measured accuracy, and current version should be much
+more accurate)
 
-<ul>
-<li>Some testing albums were brand-new, so I couldn&#39;t even find cover on google</li>
-<li>Some albums were with pretty dirty tags.</li>
-<li>A lot of pseudo-releases.</li>
-</ul>
+### Install instructions
 
-<h2>Install instructions</h2>
+#### Linux:
 
-<h3>Step 1:</h3>
+```
+$ git clone https://github.com/nagisa/QLCoverFetcher.git /tmp/cover
+$ cd /tmp/cover
+$ mkdir -p ~/.quodlibet/plugins/events
+$ cp cover.py ~/.quodlibet/plugins/events
+```
 
-<h4>Dependencies:</h4>
+Then relaunch quodlibet and enable `Automatic Cover Art Fetcher` plugin.
 
-<ul>
-<li><a href="https://github.com/dlo/bottlenose">bottlenose</a> - <code>easy_install bottlenose</code> or <code>pip install bottlenose</code></li>
-<li><a href="http://www.crummy.com/software/BeautifulSoup/">BeautifulSoup</a> - <code>easy_install BeautifulSoup</code> or <code>pip install BeautifulSoup</code></li>
-</ul>
+#### Windows:
 
-<h3>Step 2:</h3>
+Put cover.py of this repository into
+`C:\Python2.x\Lib\site-packages\quodlibet\plugins\events\\`
 
-<h4>Linux:</h4>
-
-<p>Put cover.py inside <code>/usr/lib/python2.x/site-packages/quodlibet/plugins/events/</code></p>
-
-<p><code>sudo cp ./cover.py /usr/lib/python2.7/site-packages/quodlibet/plugins/events/cover.py</code></p>
-
-<h4>Windows:</h4>
-
-<p>Put cover.py into <code>C:\Python2.x\Lib\site-packages\quodlibet\plugins\events\</code></p>
-
-<h3>Step 3:</h3>
-
-<ul>
-<li>Relaunch Quodlibet</li>
-<li>Enable <code>Automatic Album Art</code> in <code>Music</code>&gt;<code>Plugins</code></li>
-</ul>
-
-<h2>Check your quodlibet version!</h2>
-
-<p>If you are using Quodlibet 2.3 or below, you should use files tagged with ql2.3</p>
+Then relaunch quodlibet and enable `Automatic Cover Art Fetcher` plugin.
