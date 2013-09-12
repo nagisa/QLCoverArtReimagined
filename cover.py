@@ -130,12 +130,12 @@ class LastFMCoverProvider(CoverProvider, SoupDownloaderMixin):
         artist = self.song.get('artist', None)
         album = self.song.get('album', None)
         if mbid:
-            return path.join(cover_dir, mbid)
+            return mbid
         elif album and artist:
             key = sha256()
             key.update(artist.encode('utf-8'))
             key.update(album.encode('utf-8'))
-            return path.join(cover_dir, key.hexdigest())
+            return key.hexdigest()
         else: return None
 
     @property
