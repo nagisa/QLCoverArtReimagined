@@ -247,5 +247,5 @@ class AutomaticCoverFetcher(EventPlugin):
                 fetcher.fetch_cover()
             except StopIteration:
                 pass # We have no more sources.
-        run = partial(_run, reversed(self.cover_providers))
+        run = partial(_run, iter(self.cover_providers))
         run()
