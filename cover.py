@@ -5,7 +5,9 @@ from functools import partial
 from hashlib import sha256
 
 from quodlibet.plugins.events import EventPlugin
-from quodlibet import app
+from quodlibet.plugins.songsmenu import SongsMenuPlugin
+from quodlibet.qltk.ccb import ConfigCheckButton
+from quodlibet import app, config
 from quodlibet.formats._audio import AudioFile
 
 session = Soup.Session.new()
@@ -94,7 +96,10 @@ class CoverProvider(object):
 class MusicBrainzCoverProvider(CoverProvider, SoupDownloaderMixin):
     @property
     def cover_path(self):
-        return path.join(cover_dir, self.mbid) if self.mbid else None
+        if config.getboolean('plugins', 'auto_cover_song_dir'):
+            base = path.dirname(self.song['~filename'])
+        else: base = cover_dir
+        return path.join(base, self.mbid) if self.mbid else None
 
     @property
     def mbid(self):
@@ -121,8 +126,10 @@ class MusicBrainzCoverProvider(CoverProvider, SoupDownloaderMixin):
 class LastFMCoverProvider(CoverProvider, SoupDownloaderMixin):
     @property
     def cover_path(self):
-        if self.key:
-            return path.join(cover_dir, self.key)
+        if config.getboolean('plugins', 'auto_cover_song_dir'):
+            base = path.dirname(self.song['~filename'])
+        else: base = cover_dir
+        return path.join(base, self.key) if self.key else None
 
     @property
     def key(self):
@@ -249,3 +256,14 @@ class AutomaticCoverFetcher(EventPlugin):
                 pass # We have no more sources.
         run = partial(_run, iter(self.cover_providers))
         run()
+
+    def PluginPreferences(self, parent):
+        prefer_lbl = _("Store cover into the directory of song")
+        prefer_key = 'auto_cover_song_dir'
+
+        grid = Gtk.Grid.new()
+        prefer_cb = ConfigCheckButton(prefer_lbl, 'plugins', prefer_key)
+        prefer_cb.set_active(config.getboolean('plugins', prefer_key, False))
+        grid.attach(prefer_cb, 0, 0, 1, 1)
+
+        return grid
