@@ -280,9 +280,12 @@ class CoverReimagined(EventPlugin):
 
 def set_song(self, song, plugin=None):
     self._CoverImage__song = song
+    if not song:
+        self._CoverImage__file = None
+        return
+
     self._CoverImage__file = plugin.wait_file
     self.get_child().set_path(plugin.wait_file and plugin.wait_file.name)
-
 
     def success(source, cover):
         if not plugin.cancellable.is_cancelled():
