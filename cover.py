@@ -239,7 +239,7 @@ class LastFMCover(CoverSource, SoupDownloaderMixin):
 
 class CoverReimagined(EventPlugin):
     PLUGIN_ID = "cover-reimagined"
-    PLUGIN_NAME = _("Cover Arts Reimagined")
+    PLUGIN_NAME = _("Cover Art Reimagined")
     PLUGIN_DESC = _("Quodlibet cover arts reimagined")
     PLUGIN_ICON = Gtk.STOCK_FIND
     PLUGIN_VERSION = "1.0"
