@@ -5,7 +5,6 @@ from functools import partial
 from hashlib import sha256
 
 from quodlibet.plugins.events import EventPlugin
-from quodlibet.plugins.songsmenu import SongsMenuPlugin
 from quodlibet.qltk.ccb import ConfigCheckButton
 from quodlibet.qltk.cover import CoverImage
 from quodlibet import app, config
@@ -73,13 +72,14 @@ class EmbedCover(CoverSource):
 
 class FallbackCover(CoverSource):
     """ This cover source fallbacks to quodlibet code for finding covers """
+    ql_code = AudioFile.find_cover
     @staticmethod
     def priority():
         return 0.05
 
     @property
     def cover(self):
-        return self.song.find_cover()
+        return self.ql_code(self.song)
 
 
 class SoupDownloaderMixin:
@@ -250,6 +250,7 @@ class CoverReimagined(EventPlugin):
     def __init__(self):
         self.old_methods = {
             'CoverImage.set_song': CoverImage.set_song,
+            'AudioFile.find_cover': AudioFile.find_cover,
         }
         return super(CoverReimagined, self).__init__()
 
@@ -258,11 +259,13 @@ class CoverReimagined(EventPlugin):
         current_loc = path.dirname(path.abspath(__file__))
         self.wait_file = open(path.join(current_loc, 'waiting-icon.png'), 'rb')
         CoverImage.set_song = lambda s, song: set_song(s, song, plugin=self)
+        AudioFile.find_cover = lambda s: find_cover(s, plugin=self)
         self.cancellable.reset()
 
     def disabled(self):
         print_w('Un-monkey-patching quodlibet')
         CoverImage.set_song = self.old_methods['CoverImage.set_song']
+        AudioFile.find_cover = self.old_methods['AudioFile.find_cover']
         self.wait_file.close()
         self.cancellable.cancel()
 
@@ -289,8 +292,9 @@ def set_song(self, song, plugin=None):
 
     def success(source, cover):
         if not plugin.cancellable.is_cancelled():
-            self._CoverImage__file = cover
-            self.get_child().set_path(cover and cover.name)
+            if song is self._CoverImage__song:
+                self._CoverImage__file = cover
+                self.get_child().set_path(cover and cover.name)
 
     def failure(source, error):
         if not plugin.cancellable.is_cancelled():
@@ -316,3 +320,11 @@ def set_song(self, song, plugin=None):
     run = partial(_run, iter(sorted(plugin.providers, reverse=True,
                                     key=lambda x: x.priority())))
     run()
+
+
+def find_cover(self, plugin=None):
+    for provider in iter(sorted(plugin.providers, reverse=True,
+                                                  key=lambda x: x.priority())):
+        cover = provider(self, None).cover
+        if cover:
+            return cover
