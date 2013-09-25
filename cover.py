@@ -10,8 +10,20 @@ from quodlibet.qltk.cover import CoverImage
 from quodlibet import app, config
 from quodlibet.formats._audio import AudioFile
 
+# Ugly hack to not block main loop for the whole duration of download
+# There's still noticeable blocks, albeit much shorter.
+def soup_message_start(session, message, socket):
+    def unpause():
+        session.unpause_message(message)
+        return False
+    def message_chunk(message, chunk):
+        session.pause_message(message)
+        GLib.idle_add(unpause)
+    message.connect('got-chunk', message_chunk)
+
 session = Soup.Session.new()
 session.set_properties(user_agent="Quodlibet Cover Art Reimagined/1.0")
+session.connect('request-started', soup_message_start)
 
 
 class CoverSource(GObject.Object):
