@@ -1,3 +1,14 @@
+## WARNING: Merged into quodlibet codebase
+
+Effort made by this plugin proved to be good enough for merge into quodlibet
+code base itself. Now use of this plugin is not necessary to achieve the same
+results (automatically fetched cover art) anymore.
+
+At the time of writing (2013-11-03) the functionality is still not released but
+is available in development version of quodlibet. Use that.
+
+This repository is here only for historical reasons.
+
 ## [Quodlibet](http://code.google.com/p/quodlibet/)'s Cover Art Reimagined
 
 Quodlibet's cover art system is very limited and is capable only of using
