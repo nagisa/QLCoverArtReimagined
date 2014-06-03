@@ -9,6 +9,9 @@ is available in development version of quodlibet. Use that.
 
 This repository is here only for historical reasons.
 
+*Update*: As AWS started pestering me about my AWS keys being
+available publicly, those were revoked.
+
 ## [Quodlibet](http://code.google.com/p/quodlibet/)'s Cover Art Reimagined
 
 Quodlibet's cover art system is very limited and is capable only of using
